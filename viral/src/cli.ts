@@ -22,8 +22,10 @@ import type { RunMeta, SavedRun, SourceResult, ViralItem } from './types';
 import { rank } from './score';
 import { loadPacks, resolvePack } from './packs';
 import * as reddit from './sources/reddit';
-import { renderHtml, renderMarkdown, renderTable } from './render';
-import { latestRun, saveRun, viralHome } from './store';
+import { renderDiff, renderHtml, renderMarkdown, renderTable } from './render';
+import { dedupe } from './dedupe';
+import { diffRuns } from './diff';
+import { latestRun, listRuns, loadRun, saveRun, viralHome } from './store';
 import { originalityCheck, promptFor, remixAngles } from './remix';
 
 export interface Flags {
@@ -37,6 +39,7 @@ export interface Flags {
   top: number;
   minScore: number;
   sfw: boolean;
+  dedupe: boolean;
   json: boolean;
   md: boolean;
   html?: string;
@@ -49,6 +52,10 @@ export interface Flags {
 }
 
 const DEFAULT_PACK = 'memes-es';
+/** how many threads `mina` opens for comments */
+const MINE_THREADS = 5;
+/** a thread needs at least this many replies before it is worth a request */
+const MIN_THREAD_COMMENTS = 20;
 
 export function parseArgs(argv: string[]): Flags {
   const flags: Flags = {
@@ -61,6 +68,7 @@ export function parseArgs(argv: string[]): Flags {
     top: 15,
     minScore: 0,
     sfw: false,
+    dedupe: true,
     json: false,
     md: false,
     save: true,
@@ -82,6 +90,7 @@ export function parseArgs(argv: string[]): Flags {
       case '--top': case '-n': flags.top = Number(next()) || 15; break;
       case '--min-score': flags.minScore = Number(next()) || 0; break;
       case '--sfw': flags.sfw = true; break;
+      case '--no-dedupe': flags.dedupe = false; break;
       case '--json': flags.json = true; break;
       case '--md': case '--markdown': flags.md = true; break;
       case '--html': flags.html = next(); break;
@@ -104,6 +113,7 @@ function normalizeCommand(cmd: string): string {
     search: 'buscar', busca: 'buscar',
     comments: 'comentarios', coment: 'comentarios',
     mine: 'mina', dig: 'mina',
+    diff: 'cambios', changes: 'cambios',
     last: 'ultimo', último: 'ultimo',
     originality: 'original',
     help: 'ayuda',
@@ -121,6 +131,7 @@ COMANDOS
   buscar <texto>            busca por palabra clave
   comentarios <url|id>      los mejores comentarios de un post
   mina                      posts virales + sus mejores comentarios en una pasada
+  cambios                   qué ha subido desde tu búsqueda anterior (lo que aún puedes coger)
   remix <n|--texto "...">   ángulos para adaptar el resultado n de la última búsqueda
   original <fuente> <tuyo>  compara dos archivos de texto y avisa si tu versión es un calco
   packs                     lista los packs de comunidades
@@ -135,6 +146,7 @@ OPCIONES
   -n, --top <n>             resultados a mostrar (por defecto: 15)
       --min-score <n>       descarta lo que tenga menos de n votos
       --sfw                 fuera todo lo marcado +18
+      --no-dedupe           no juntes los crossposts (por defecto se juntan en uno, con ×N)
       --json                salida JSON
       --md                  salida Markdown
       --html <archivo>      escribe un tablero HTML con las imágenes
@@ -151,6 +163,7 @@ EJEMPLOS
   gstack-viral mina --pack comentarios-es -n 8
   gstack-viral comentarios https://www.reddit.com/r/AskReddit/comments/abc123/...
   gstack-viral remix 3 --nicho "programación" --prompt
+  gstack-viral trending --pack memes-es && sleep 3600 && gstack-viral cambios
 
 CÓMO SE PUNTÚA
   El score 0-100 pesa velocidad (votos/hora, no votos totales), densidad de
@@ -194,6 +207,18 @@ function communitiesFor(flags: Flags): string[] {
 
 function filterItems(items: ViralItem[], flags: Flags): ViralItem[] {
   return items.filter((i) => (!flags.sfw || !i.over18) && i.score >= flags.minScore);
+}
+
+/**
+ * filter -> rank -> fold crossposts -> cut to --top.
+ *
+ * Ranking happens BEFORE deduping on purpose: when the same meme is in six
+ * communities, the copy that survives is the one performing best, not whichever
+ * subreddit happened to be read first.
+ */
+function shortlist(items: ViralItem[], flags: Flags): ViralItem[] {
+  const ranked = rank(filterItems(items, flags));
+  return (flags.dedupe ? dedupe(ranked) : ranked).slice(0, flags.top);
 }
 
 function emit(items: ViralItem[], meta: RunMeta, flags: Flags, out: (s: string) => void): void {
@@ -316,7 +341,7 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
         }
         const result = await reddit.fetchComments(ref, { limit: flags.limit });
         reportErrors(result, out);
-        const items = rank(filterItems(result.items, flags)).slice(0, flags.top);
+        const items = shortlist(result.items, flags);
         const runMeta = meta(flags, [items[0]?.community ?? ''], items.length);
         if (flags.save) saveRun({ meta: runMeta, items });
         emit(items, runMeta, flags, out);
@@ -326,27 +351,55 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
       case 'mina': {
         const { result, communities } = await collect(flags);
         reportErrors(result, out);
-        const posts = rank(filterItems(result.items, flags)).slice(0, flags.top);
-        const comments: ViralItem[] = [];
-        for (const post of posts.slice(0, Math.min(posts.length, 5))) {
-          const r = await reddit.fetchComments(post.id, { limit: 50, delayMs: flags.delayMs });
-          comments.push(...rank(filterItems(r.items, flags)).slice(0, 3));
-        }
-        const items = [...posts, ...rank(comments)];
+        const posts = shortlist(result.items, flags);
+        // Only open threads that can HAVE a quotable reply. An image meme's
+        // comments are reaction gifs, and every request spent there is one not
+        // spent where the gold actually lives.
+        const threads = posts
+          .filter((p) => !p.isImage && p.comments >= MIN_THREAD_COMMENTS)
+          .slice(0, MINE_THREADS);
+        const commentResult = await reddit.fetchCommentsBatch(
+          threads.map((t) => t.id),
+          { limit: 50, delayMs: flags.delayMs },
+        );
+        reportErrors(commentResult, out);
+        const comments = shortlist(commentResult.items, flags);
+        const items = [...posts, ...comments];
         const runMeta = meta(flags, communities, items.length);
         if (flags.save) saveRun({ meta: runMeta, items });
         out('POSTS');
         emit(posts, runMeta, { ...flags, html: undefined }, out);
-        out('COMENTARIOS REUTILIZABLES');
-        emit(rank(comments).slice(0, flags.top), runMeta, flags, out);
+        out(`COMENTARIOS REUTILIZABLES (de ${threads.length} hilo(s) de texto)`);
+        if (threads.length === 0) {
+          out('   Este pack solo trajo memes de imagen: ahí los comentarios no dan material.');
+          out('   Prueba --pack comentarios-es o --pack historias-es.');
+        }
+        emit(comments, runMeta, flags, out);
         return items.length > 0 ? 0 : 1;
+      }
+
+      case 'cambios': {
+        const runs = listRuns();
+        const earlierFile = flags.positional[0];
+        if (!earlierFile && runs.length < 2) {
+          out('Necesito dos búsquedas para comparar. Lanza la misma otra vez dentro de un rato:');
+          out('   gstack-viral trending --pack memes-es   (ahora)');
+          out('   gstack-viral cambios                    (dentro de una hora)');
+          return 1;
+        }
+        const current = loadRun(runs[runs.length - 1]);
+        const previous = earlierFile ? loadRun(earlierFile) : loadRun(runs[runs.length - 2]);
+        const result = diffRuns(previous, current);
+        if (flags.json) out(JSON.stringify(result, null, 2));
+        else out(renderDiff(result));
+        return 0;
       }
 
       case 'trending':
       case 'buscar': {
         const { result, communities } = await collect(flags);
         reportErrors(result, out);
-        const items = rank(filterItems(result.items, flags)).slice(0, flags.top);
+        const items = shortlist(result.items, flags);
         const runMeta = meta(flags, communities, items.length);
         if (flags.save) saveRun({ meta: runMeta, items });
         emit(items, runMeta, flags, out);

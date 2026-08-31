@@ -85,6 +85,12 @@ describe('renderTable', () => {
   test('an empty run says what to try instead of printing nothing', () => {
     expect(renderTable([])).toContain('--window');
   });
+
+  test('a folded crosspost shows how many copies it stood for', () => {
+    const out = renderTable(rank([item({ duplicates: 2 })], NOW));
+    expect(out).toContain('×3');
+    expect(renderTable(rank([item()], NOW))).not.toContain('×');
+  });
 });
 
 describe('renderMarkdown', () => {
@@ -121,6 +127,10 @@ describe('renderHtml', () => {
     expect(html).toContain('data-copy="dijo &quot;esto&quot; y se fue"');
   });
 
+  test('the board carries the crosspost count too', () => {
+    expect(renderHtml(rank([item({ duplicates: 4 })], NOW), meta)).toContain('×5');
+  });
+
   test('+18 items ship blurred rather than filtered out silently', () => {
     const html = renderHtml(rank([item({ over18: true })], NOW), meta);
     expect(html).toContain('card nsfw');
@@ -145,6 +155,16 @@ describe('parseArgs', () => {
 
   test('--sub accepts a comma list and strips the r/ prefix', () => {
     expect(parseArgs(['trending', '--sub', 'r/memes,SpanishMeme']).subs).toEqual(['memes', 'SpanishMeme']);
+  });
+
+  test('crossposts are folded unless you say otherwise', () => {
+    expect(parseArgs([]).dedupe).toBe(true);
+    expect(parseArgs(['trending', '--no-dedupe']).dedupe).toBe(false);
+  });
+
+  test('diff and changes alias onto cambios', () => {
+    expect(parseArgs(['diff']).command).toBe('cambios');
+    expect(parseArgs(['changes']).command).toBe('cambios');
   });
 
   test('an unknown option fails loudly instead of being ignored', () => {
@@ -238,6 +258,47 @@ describe('main (no network)', () => {
     expect(await main(['original', a, b], out)).toBe(0);
     expect(lines.join('\n')).toContain('se sostiene sola');
     fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  test('cambios with a single saved run explains how to get a second one', async () => {
+    const solo = fs.mkdtempSync(path.join(os.tmpdir(), 'viral-solo-'));
+    const previous = process.env.GSTACK_HOME;
+    process.env.GSTACK_HOME = solo;
+    try {
+      saveRun({ meta: { ...meta, createdAt: '2026-09-01T10:00:00.000Z' }, items: rank([item()], NOW) });
+      const { lines, out } = capture();
+      expect(await main(['cambios'], out)).toBe(1);
+      expect(lines.join('\n')).toContain('dos búsquedas');
+    } finally {
+      process.env.GSTACK_HOME = previous;
+      fs.rmSync(solo, { recursive: true, force: true });
+    }
+  });
+
+  test('cambios compares the last two runs and leads with what is climbing', async () => {
+    const base = item({ id: 't3_sube', title: 'este sigue subiendo', score: 1000 });
+    saveRun({
+      meta: { ...meta, createdAt: '2026-09-01T10:00:00.000Z' },
+      items: rank([base], NOW),
+    });
+    saveRun({
+      meta: { ...meta, createdAt: '2026-09-01T12:00:00.000Z' },
+      items: rank([{ ...base, score: 9000 }], NOW),
+    });
+    const { lines, out } = capture();
+    expect(await main(['cambios'], out)).toBe(0);
+    const text = lines.join('\n');
+    expect(text).toContain('SIGUE SUBIENDO');
+    expect(text).toContain('este sigue subiendo');
+    expect(text).toContain('+8.0k votos');
+  });
+
+  test('cambios --json hands back the structured diff', async () => {
+    const { lines, out } = capture();
+    expect(await main(['cambios', '--json'], out)).toBe(0);
+    const parsed = JSON.parse(lines.join('\n'));
+    expect(parsed.hoursBetween).toBe(2);
+    expect(parsed.entries[0].trend).toBe('acelera');
   });
 
   test('an unknown pack names the command that lists the real ones', async () => {
