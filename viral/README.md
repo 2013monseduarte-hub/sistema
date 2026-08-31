@@ -95,6 +95,37 @@ Detalles que importan:
   14 días.
 - Permisos del token: leer el código y escribir issues. Nada más.
 
+## En la web: desplegar en Netlify
+
+En Netlify sí funciona una versión web de verdad, porque la búsqueda corre en una
+función del servidor y no en el navegador (el navegador tiene bloqueadas las
+llamadas a otros dominios; el servidor no).
+
+```
+netlify.toml              configuración: publish, funciones, redirect /api/buscar
+netlify/functions/buscar.mts   la búsqueda como función de servidor
+web/index.html            la página con el formulario
+```
+
+Para desplegarlo: en Netlify, **Add new site → Import an existing project**,
+eliges este repo y la rama. La configuración ya está en `netlify.toml`, no hay
+que tocar nada en el panel. Al terminar tienes una URL pública con el formulario,
+y `TU-SITIO.netlify.app/api/buscar?pack=memes-es` devuelve el tablero directo.
+
+Con `?formato=json` devuelve los datos en crudo, por si quieres montar otra cosa
+encima.
+
+Lo que manda en el diseño de la función es el reloj: una función de Netlify tiene
+unos 10 segundos, y un pack de seis comunidades a la pausa de 700 ms de la CLI se
+come casi todo. Por eso ahí la pausa baja a 350 ms, se topan las comunidades en
+seis, se reintenta una sola vez y la respuesta se cachea cinco minutos: recargar
+el navegador no dispara otra ronda de peticiones.
+
+Dos diferencias con la CLI, a propósito: siempre se filtra el +18 (la URL es
+pública) y no hay `cambios`, porque el disco de una función es efímero y no
+guarda las búsquedas anteriores. Para el histórico están la CLI y el workflow de
+GitHub Actions.
+
 ## Packs
 
 Los packs son atajos: `--pack memes-es` en vez de escribir seis comunidades. Los
