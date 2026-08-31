@@ -177,7 +177,7 @@ describe('fetching', () => {
     const fetchImpl = (async () => {
       throw new Error('socket hang up');
     }) as typeof globalThis.fetch;
-    const result = await search('memes', ['memes'], { fetchImpl });
+    const result = await search('memes', ['memes'], { fetchImpl, retries: 0 });
     expect(result.items).toEqual([]);
     expect(result.errors[0].reason).toBe('socket hang up');
   });

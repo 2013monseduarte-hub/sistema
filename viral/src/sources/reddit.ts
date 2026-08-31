@@ -19,8 +19,14 @@ import { receiptedFetch, type FetchLike } from '../receipted-fetch';
 
 export const USER_AGENT = 'gstack-viral/0.1 (personal content research; +https://github.com/garrytan/gstack)';
 export const MAX_LIMIT = 100;
-/** ms between community requests — keeps a 6-subreddit pack under Reddit's patience */
+/** ms between requests — keeps a 6-subreddit pack under Reddit's patience */
 export const REQUEST_DELAY_MS = 700;
+/** how many times a throttled or 5xx request is retried before it becomes an error */
+export const MAX_RETRIES = 2;
+/** statuses worth retrying: throttling and the transient server-side family */
+export const RETRY_STATUS = new Set([429, 500, 502, 503, 504]);
+/** hard ceiling on an honored Retry-After — a header asking for an hour is a "come back later", not a wait */
+export const MAX_RETRY_WAIT_MS = 60_000;
 
 export type ListingKind = 'top' | 'hot' | 'rising' | 'new';
 export type TimeWindow = 'hour' | 'day' | 'week' | 'month' | 'year' | 'all';
@@ -31,6 +37,10 @@ export interface FetchOptions {
   limit?: number;
   fetchImpl?: FetchLike;
   delayMs?: number;
+  /** retries per request on 429/5xx (default MAX_RETRIES) */
+  retries?: number;
+  /** injectable sleep — tests pace a whole retry ladder without waiting for it */
+  sleepImpl?: (ms: number) => Promise<void>;
 }
 
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp)(\?|$)/i;
@@ -155,18 +165,59 @@ export function parseComments(json: unknown, maxDepth = 2): ViralItem[] {
   return out;
 }
 
-async function getJson(payloadClass: string, url: string, fetchImpl?: FetchLike): Promise<unknown> {
-  const res = await receiptedFetch(
-    payloadClass,
-    url,
-    { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' } },
-    fetchImpl ?? globalThis.fetch,
-  );
-  if (!res.ok) throw new Error(`HTTP ${res.status}`);
-  return res.json();
+/**
+ * How long to wait before retrying. Reddit answers a throttle with
+ * `Retry-After`, in seconds or as an HTTP date; anything else falls back to
+ * exponential backoff (1s, 2s, 4s). Returns null when the server is asking for
+ * longer than we are willing to block the CLI for.
+ */
+export function retryDelayMs(res: { headers?: { get?(name: string): string | null } }, attempt: number, now = Date.now()): number | null {
+  const header = res.headers?.get?.('Retry-After') ?? null;
+  if (header) {
+    const seconds = Number(header);
+    const ms = Number.isFinite(seconds) ? seconds * 1000 : Date.parse(header) - now;
+    if (Number.isFinite(ms) && ms > 0) return ms > MAX_RETRY_WAIT_MS ? null : ms;
+  }
+  return Math.min(1000 * 2 ** attempt, MAX_RETRY_WAIT_MS);
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * One request, with retries on throttling, transient server errors, and
+ * network faults (a socket hang up is the single most common failure on a
+ * flaky connection, and it is exactly the one worth repeating).
+ *
+ * A 404 (community gone) or a 403 (private) is NOT retried: repeating it just
+ * makes us look worse to the host and the answer will not change.
+ */
+async function getJson(payloadClass: string, url: string, opts: FetchOptions = {}): Promise<unknown> {
+  const retries = opts.retries ?? MAX_RETRIES;
+  const nap = opts.sleepImpl ?? sleep;
+  let lastError = new Error('HTTP 0');
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    let wait: number | null = null;
+    try {
+      const res = await receiptedFetch(
+        payloadClass,
+        url,
+        { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' } },
+        opts.fetchImpl ?? globalThis.fetch,
+      );
+      if (res.ok) return await res.json();
+      lastError = new Error(`HTTP ${res.status}`);
+      if (!RETRY_STATUS.has(res.status)) break;
+      wait = retryDelayMs(res, attempt);
+    } catch (err) {
+      lastError = err as Error;
+      wait = retryDelayMs({}, attempt);
+    }
+    // out of attempts, or the host asked for longer than we will hold the CLI
+    if (attempt === retries || wait === null) break;
+    await nap(wait);
+  }
+  throw lastError;
+}
 
 /** Top/hot/rising posts across a list of communities. Per-community failures are collected, not thrown. */
 export async function fetchCommunities(communities: string[], opts: FetchOptions = {}): Promise<SourceResult> {
@@ -176,7 +227,7 @@ export async function fetchCommunities(communities: string[], opts: FetchOptions
   for (const [i, community] of communities.entries()) {
     if (i > 0 && delay > 0) await sleep(delay);
     try {
-      items.push(...parseListing(await getJson('reddit-listing', listingUrl(community, opts), opts.fetchImpl)));
+      items.push(...parseListing(await getJson('reddit-listing', listingUrl(community, opts), opts)));
     } catch (err) {
       errors.push({ community, reason: (err as Error).message });
     }
@@ -187,11 +238,32 @@ export async function fetchCommunities(communities: string[], opts: FetchOptions
 /** Keyword search, optionally restricted to a set of communities. */
 export async function search(query: string, communities: string[], opts: FetchOptions = {}): Promise<SourceResult> {
   try {
-    const json = await getJson('reddit-search', searchUrl(query, communities, opts), opts.fetchImpl);
+    const json = await getJson('reddit-search', searchUrl(query, communities, opts), opts);
     return { items: parseListing(json), errors: [] };
   } catch (err) {
     return { items: [], errors: [{ community: communities.join('+') || 'all', reason: (err as Error).message }] };
   }
+}
+
+/**
+ * Top comments of several posts, paced like every other read.
+ *
+ * Pacing lives here, in the adapter, and not in the caller: a loop in a command
+ * that forgets to sleep is exactly how a polite tool starts collecting 429s
+ * (which is what `mina` used to do).
+ */
+export async function fetchCommentsBatch(postRefs: string[], opts: FetchOptions = {}): Promise<SourceResult> {
+  const items: ViralItem[] = [];
+  const errors: SourceResult['errors'] = [];
+  const delay = opts.delayMs ?? REQUEST_DELAY_MS;
+  const nap = opts.sleepImpl ?? sleep;
+  for (const [i, ref] of postRefs.entries()) {
+    if (i > 0 && delay > 0) await nap(delay);
+    const result = await fetchComments(ref, opts);
+    items.push(...result.items);
+    errors.push(...result.errors);
+  }
+  return { items, errors };
 }
 
 /** Top comments of one post. `postRef` may be a permalink, a short link, or an id. */
@@ -199,7 +271,7 @@ export async function fetchComments(postRef: string, opts: FetchOptions = {}): P
   const id = postIdFrom(postRef);
   if (!id) return { items: [], errors: [{ community: postRef, reason: 'no pude extraer el id del post' }] };
   try {
-    const json = await getJson('reddit-comments', commentsUrl(id, opts.limit ?? 50), opts.fetchImpl);
+    const json = await getJson('reddit-comments', commentsUrl(id, opts.limit ?? 50), opts);
     return { items: parseComments(json), errors: [] };
   } catch (err) {
     return { items: [], errors: [{ community: id, reason: (err as Error).message }] };
