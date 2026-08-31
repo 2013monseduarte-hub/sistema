@@ -49,6 +49,8 @@ export interface ViralItem {
   parentTitle?: string;
   parentUrl?: string;
   depth?: number;
+  /** how many near-identical copies were folded into this one (crossposts) */
+  duplicates?: number;
   metrics?: ViralMetrics;
 }
 
