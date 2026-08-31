@@ -6,6 +6,7 @@
  * board shows the actual image next to the score so you can judge in one pass.
  */
 
+import type { RunDiff, Trend } from './diff';
 import type { RunMeta, ViralItem } from './types';
 
 const BAR_WIDTH = 10;
@@ -37,7 +38,8 @@ export function renderTable(items: ViralItem[]): string {
       `${idx}. ${scoreBar(score)} ${String(score).padStart(3, ' ')}  ` +
         `${fmtCount(item.score).padStart(6)} pts  ${fmtCount(Math.round(m?.velocity ?? 0)).padStart(6)}/h  ` +
         `${fmtCount(item.comments).padStart(5)} com  ${humanAge(m?.ageHours ?? 0).padStart(4)}  ` +
-        `r/${item.community}${item.isImage ? '  [img]' : ''}${item.over18 ? '  [+18]' : ''}`,
+        `r/${item.community}${item.isImage ? '  [img]' : ''}${item.over18 ? '  [+18]' : ''}` +
+          (item.duplicates ? `  ×${item.duplicates + 1}` : ''),
     );
     lines.push(`    ${snippet(item)}`);
     lines.push(`    ${item.url}`);
@@ -87,6 +89,7 @@ export function renderHtml(items: ViralItem[], meta: RunMeta): string {
     <span>${fmtCount(Math.round(m?.velocity ?? 0))}/h</span>
     <span>${fmtCount(item.comments)} com</span>
     <span>${humanAge(m?.ageHours ?? 0)}</span>
+    ${item.duplicates ? `<span title="copias en otras comunidades">×${item.duplicates + 1}</span>` : ''}
     <span class="sub">r/${esc(item.community)}</span>
   </div>
   ${parent}
@@ -180,4 +183,44 @@ function attr(s: string): string {
 
 function escapePipes(s: string): string {
   return s.replace(/\|/g, '\\|');
+}
+
+const TREND_LABEL: Record<Trend, string> = {
+  acelera: 'SIGUE SUBIENDO',
+  nuevo: 'NUEVO DESDE LA ÚLTIMA VEZ',
+  enfria: 'YA SE ESTÁ ENFRIANDO',
+};
+
+/**
+ * The diff view. Order is deliberate: what is still climbing first, because
+ * that is the only group you can still act on.
+ */
+export function renderDiff(diff: RunDiff): string {
+  const lines: string[] = [
+    `Comparando dos búsquedas separadas por ${diff.hoursBetween}h.`,
+  ];
+  if (diff.mismatched) {
+    lines.push('[aviso] las dos búsquedas no usaron el mismo comando/pack: la comparación es orientativa.');
+  }
+  lines.push('');
+
+  for (const trend of ['acelera', 'nuevo', 'enfria'] as Trend[]) {
+    const group = diff.entries.filter((e) => e.trend === trend);
+    lines.push(`${TREND_LABEL[trend]} (${group.length})`);
+    if (group.length === 0) lines.push('   —');
+    group.slice(0, 10).forEach((entry) => {
+      const delta = entry.deltaScore >= 0 ? `+${fmtCount(entry.deltaScore)}` : fmtCount(entry.deltaScore);
+      const pace = `${fmtCount(Math.round(entry.recentPace))}/h`;
+      const before = entry.trend === 'nuevo' ? '' : ` (antes ${fmtCount(Math.round(entry.previousPace))}/h)`;
+      lines.push(`   ${delta.padStart(7)} votos · ${pace.padStart(8)}${before}  r/${entry.item.community}`);
+      lines.push(`           ${snippet(entry.item, 76)}`);
+      lines.push(`           ${entry.item.url}`);
+    });
+    lines.push('');
+  }
+
+  if (diff.dropped.length > 0) {
+    lines.push(`Salieron del ranking: ${diff.dropped.length}`);
+  }
+  return lines.join('\n');
 }
