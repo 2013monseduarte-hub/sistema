@@ -1,0 +1,207 @@
+/**
+ * reddit adapter — public JSON listings, no API key, no login.
+ *
+ * Reddit is the right first source for this job: the memes that end up on
+ * Instagram and TikTok are usually 24-72 hours old on Reddit first, and the
+ * comment threads are the raw material for "historia real" style posts. Every
+ * endpoint used here is the public `.json` view of a page anyone can open in a
+ * browser.
+ *
+ * Split on purpose: `parse*` functions are pure (fixtures test them offline),
+ * `fetch*` functions do the network through the receipted wrapper.
+ *
+ * Politeness: one request at a time per community with a small delay, a real
+ * User-Agent, and `limit` capped. This is a research reader, not a crawler.
+ */
+
+import type { SourceResult, ViralItem } from '../types';
+import { receiptedFetch, type FetchLike } from '../receipted-fetch';
+
+export const USER_AGENT = 'gstack-viral/0.1 (personal content research; +https://github.com/garrytan/gstack)';
+export const MAX_LIMIT = 100;
+/** ms between community requests — keeps a 6-subreddit pack under Reddit's patience */
+export const REQUEST_DELAY_MS = 700;
+
+export type ListingKind = 'top' | 'hot' | 'rising' | 'new';
+export type TimeWindow = 'hour' | 'day' | 'week' | 'month' | 'year' | 'all';
+
+export interface FetchOptions {
+  listing?: ListingKind;
+  window?: TimeWindow;
+  limit?: number;
+  fetchImpl?: FetchLike;
+  delayMs?: number;
+}
+
+const IMAGE_EXT = /\.(jpe?g|png|gif|webp)(\?|$)/i;
+
+export function listingUrl(community: string, opts: FetchOptions = {}): string {
+  const listing = opts.listing ?? 'top';
+  const window = opts.window ?? 'day';
+  const limit = Math.min(opts.limit ?? 50, MAX_LIMIT);
+  return `https://www.reddit.com/r/${encodeURIComponent(community)}/${listing}.json?t=${window}&limit=${limit}&raw_json=1`;
+}
+
+export function searchUrl(query: string, communities: string[], opts: FetchOptions = {}): string {
+  const window = opts.window ?? 'week';
+  const limit = Math.min(opts.limit ?? 50, MAX_LIMIT);
+  const scope = communities.length > 0 ? `r/${communities.map(encodeURIComponent).join('+')}/` : '';
+  const restrict = communities.length > 0 ? '&restrict_sr=1' : '';
+  return `https://www.reddit.com/${scope}search.json?q=${encodeURIComponent(query)}${restrict}&sort=top&t=${window}&limit=${limit}&raw_json=1`;
+}
+
+export function commentsUrl(postId: string, limit = 50): string {
+  return `https://www.reddit.com/comments/${encodeURIComponent(postId)}.json?sort=top&limit=${Math.min(limit, MAX_LIMIT)}&raw_json=1`;
+}
+
+/** Accepts a full permalink, a short link, or a bare id and returns the id. */
+export function postIdFrom(input: string): string | undefined {
+  const trimmed = input.trim();
+  const inUrl = trimmed.match(/\/comments\/([a-z0-9]+)/i) || trimmed.match(/redd\.it\/([a-z0-9]+)/i);
+  if (inUrl) return inUrl[1];
+  if (/^t3_([a-z0-9]+)$/i.test(trimmed)) return trimmed.slice(3);
+  if (/^[a-z0-9]{5,10}$/i.test(trimmed)) return trimmed;
+  return undefined;
+}
+
+function mediaFrom(data: Record<string, any>): string | undefined {
+  const preview = data?.preview?.images?.[0]?.source?.url;
+  if (typeof preview === 'string' && preview.startsWith('http')) return preview;
+  if (typeof data?.url_overridden_by_dest === 'string' && IMAGE_EXT.test(data.url_overridden_by_dest)) {
+    return data.url_overridden_by_dest;
+  }
+  if (typeof data?.url === 'string' && IMAGE_EXT.test(data.url)) return data.url;
+  if (typeof data?.thumbnail === 'string' && data.thumbnail.startsWith('http')) return data.thumbnail;
+  return undefined;
+}
+
+/** Pure: Reddit listing JSON -> ViralItem[]. Unknown/odd shapes are skipped, not thrown on. */
+export function parseListing(json: unknown): ViralItem[] {
+  const children = (json as any)?.data?.children;
+  if (!Array.isArray(children)) return [];
+  const items: ViralItem[] = [];
+  for (const child of children) {
+    if (child?.kind !== 't3') continue;
+    const d = child.data;
+    if (!d?.id) continue;
+    if (d.stickied) continue; // pinned mod posts are never the viral thing
+    const media = mediaFrom(d);
+    items.push({
+      id: `t3_${d.id}`,
+      kind: 'post',
+      source: 'reddit',
+      community: d.subreddit ?? '',
+      author: d.author ?? '[unknown]',
+      title: d.title ?? '',
+      text: typeof d.selftext === 'string' ? d.selftext : '',
+      url: d.permalink ? `https://www.reddit.com${d.permalink}` : (d.url ?? ''),
+      mediaUrl: media,
+      isImage: Boolean(media) && (d.post_hint === 'image' || IMAGE_EXT.test(media ?? '')),
+      createdUtc: Number(d.created_utc) || 0,
+      score: Number(d.score) || 0,
+      comments: Number(d.num_comments) || 0,
+      upvoteRatio: typeof d.upvote_ratio === 'number' ? d.upvote_ratio : undefined,
+      over18: Boolean(d.over_18),
+    });
+  }
+  return items;
+}
+
+/**
+ * Pure: the comments endpoint returns `[postListing, commentListing]`. Walks
+ * the reply tree, skips `more` stubs and deleted bodies, and stamps every
+ * comment with the post it came from so attribution survives.
+ */
+export function parseComments(json: unknown, maxDepth = 2): ViralItem[] {
+  const arr = json as any[];
+  if (!Array.isArray(arr) || arr.length < 2) return [];
+  const post = parseListing(arr[0])[0];
+  const out: ViralItem[] = [];
+
+  const walk = (node: any, depth: number): void => {
+    if (!node || node.kind !== 't1') return;
+    const d = node.data;
+    if (!d?.id) return;
+    const body = typeof d.body === 'string' ? d.body : '';
+    const isDead = body === '[deleted]' || body === '[removed]' || !body;
+    if (!isDead && !d.stickied) {
+      out.push({
+        id: `t1_${d.id}`,
+        kind: 'comment',
+        source: 'reddit',
+        community: d.subreddit ?? post?.community ?? '',
+        author: d.author ?? '[unknown]',
+        title: '',
+        text: body,
+        url: d.permalink ? `https://www.reddit.com${d.permalink}` : (post?.url ?? ''),
+        isImage: false,
+        createdUtc: Number(d.created_utc) || 0,
+        score: Number(d.score) || 0,
+        comments: Number(d.replies?.data?.children?.length) || 0,
+        over18: Boolean(post?.over18),
+        parentId: post?.id,
+        parentTitle: post?.title,
+        parentUrl: post?.url,
+        depth,
+      });
+    }
+    if (depth >= maxDepth) return;
+    const replies = d.replies?.data?.children;
+    if (Array.isArray(replies)) for (const r of replies) walk(r, depth + 1);
+  };
+
+  const top = arr[1]?.data?.children;
+  if (Array.isArray(top)) for (const c of top) walk(c, 0);
+  return out;
+}
+
+async function getJson(payloadClass: string, url: string, fetchImpl?: FetchLike): Promise<unknown> {
+  const res = await receiptedFetch(
+    payloadClass,
+    url,
+    { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' } },
+    fetchImpl ?? globalThis.fetch,
+  );
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Top/hot/rising posts across a list of communities. Per-community failures are collected, not thrown. */
+export async function fetchCommunities(communities: string[], opts: FetchOptions = {}): Promise<SourceResult> {
+  const items: ViralItem[] = [];
+  const errors: SourceResult['errors'] = [];
+  const delay = opts.delayMs ?? REQUEST_DELAY_MS;
+  for (const [i, community] of communities.entries()) {
+    if (i > 0 && delay > 0) await sleep(delay);
+    try {
+      items.push(...parseListing(await getJson('reddit-listing', listingUrl(community, opts), opts.fetchImpl)));
+    } catch (err) {
+      errors.push({ community, reason: (err as Error).message });
+    }
+  }
+  return { items, errors };
+}
+
+/** Keyword search, optionally restricted to a set of communities. */
+export async function search(query: string, communities: string[], opts: FetchOptions = {}): Promise<SourceResult> {
+  try {
+    const json = await getJson('reddit-search', searchUrl(query, communities, opts), opts.fetchImpl);
+    return { items: parseListing(json), errors: [] };
+  } catch (err) {
+    return { items: [], errors: [{ community: communities.join('+') || 'all', reason: (err as Error).message }] };
+  }
+}
+
+/** Top comments of one post. `postRef` may be a permalink, a short link, or an id. */
+export async function fetchComments(postRef: string, opts: FetchOptions = {}): Promise<SourceResult> {
+  const id = postIdFrom(postRef);
+  if (!id) return { items: [], errors: [{ community: postRef, reason: 'no pude extraer el id del post' }] };
+  try {
+    const json = await getJson('reddit-comments', commentsUrl(id, opts.limit ?? 50), opts.fetchImpl);
+    return { items: parseComments(json), errors: [] };
+  } catch (err) {
+    return { items: [], errors: [{ community: id, reason: (err as Error).message }] };
+  }
+}
