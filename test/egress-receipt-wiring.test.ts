@@ -60,6 +60,9 @@ const POLARITY: Record<string, 'fail-closed' | 'fail-open'> = {
   'community-dashboard': 'fail-open',
   'git-class user ops (artifacts-init, brain-restore, session-update)': 'fail-open',
   'context-bill --exact': 'fail-open',
+  // viral-scrape (open): reading public listings is a user-facing browse
+  // operation; it must not die because an audit line could not be appended.
+  'viral-scrape': 'fail-open',
 };
 
 /** TS sinks: must import the canonical helper and call writeReceipt(). */
@@ -81,6 +84,9 @@ const MODULE_SINKS = [
   // supabase-provision engine (bin/gstack-gbrain-supabase-provision is a thin
   // bun-shebang entry over this module; the receipt lives at the api-call layer).
   'lib/gbrain-supabase-provision.ts',
+  // viral finder: every public-listing read goes through this wrapper (sink
+  // 'viral-scrape'). bin/gstack-viral is a thin shim over viral/src/cli.ts.
+  'viral/src/receipted-fetch.ts',
 ];
 
 /** Shell sinks: must source the shared lib; every network op receipted. */
@@ -328,6 +334,7 @@ describe('egress receipt wiring tripwire', () => {
       'git-class user ops (artifacts-init, brain-restore, session-update)',
       'security-dashboard',
       'update-check',
+      'viral-scrape',
     ]);
   });
 
@@ -354,10 +361,15 @@ describe('egress receipt wiring tripwire', () => {
     const rf = read('design/src/receipted-fetch.ts');
     expect(rf).toContain('fail-open');
     expect(rf.indexOf('writeReceipt(')).toBeLessThan(rf.indexOf('fetchImpl(url, init)'));
+    // viral (open): same shape — receipt first, send after, receipt failure warns.
+    const vf = read('viral/src/receipted-fetch.ts');
+    expect(vf).toContain('fail-open');
+    expect(vf).toMatch(/sink:\s*['"]viral-scrape['"]/);
+    expect(vf.indexOf('writeReceipt(')).toBeLessThan(vf.indexOf('fetchImpl(url, init)'));
   });
 
   test('NEW-SINK SCANNER: every outbound network op in the tree is wired or reasoned-exempt', () => {
-    const SWEEP = ['bin', 'lib', 'scripts', 'design/src', 'browse/src'];
+    const SWEEP = ['bin', 'lib', 'scripts', 'design/src', 'browse/src', 'viral/src'];
     const offenders: string[] = [];
     for (const dirRel of SWEEP) {
       const dir = path.join(ROOT, dirRel);

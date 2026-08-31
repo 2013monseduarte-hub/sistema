@@ -1,0 +1,7 @@
+#!/usr/bin/env bun
+// gstack-viral — buscador de memes y comentarios virales.
+// All behavior lives in viral/src/cli.ts; this is the CLI shim.
+
+import { main } from '../viral/src/cli';
+
+process.exit(await main(process.argv.slice(2)));

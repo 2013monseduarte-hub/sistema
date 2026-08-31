@@ -1,0 +1,138 @@
+{
+  "kind": "Listing",
+  "data": {
+    "after": null,
+    "children": [
+      {
+        "kind": "t3",
+        "data": {
+          "id": "aaa111",
+          "title": "Cuando el lunes te mira fijamente",
+          "subreddit": "SpanishMeme",
+          "author": "u_aaa111",
+          "selftext": "",
+          "permalink": "/r/SpanishMeme/comments/aaa111/slug/",
+          "url": "https://i.redd.it/aaa111.jpg",
+          "score": 4200,
+          "num_comments": 310,
+          "upvote_ratio": 0.95,
+          "created_utc": 1699997480.0,
+          "over_18": false,
+          "stickied": false,
+          "post_hint": "image",
+          "preview": {
+            "images": [
+              {
+                "source": {
+                  "url": "https://preview.redd.it/aaa111.jpg?width=640"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "bbb222",
+          "title": "El meme mas viejo que sigue funcionando",
+          "subreddit": "SpanishMeme",
+          "author": "u_bbb222",
+          "selftext": "",
+          "permalink": "/r/SpanishMeme/comments/bbb222/slug/",
+          "url": "https://i.redd.it/bbb222.jpg",
+          "score": 90000,
+          "num_comments": 1200,
+          "upvote_ratio": 0.95,
+          "created_utc": 1699740800,
+          "over_18": false,
+          "stickied": false,
+          "post_hint": "image",
+          "preview": {
+            "images": [
+              {
+                "source": {
+                  "url": "https://preview.redd.it/bbb222.jpg?width=640"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "ccc333",
+          "title": "Aviso del subreddit: normas",
+          "subreddit": "SpanishMeme",
+          "author": "u_ccc333",
+          "selftext": "",
+          "permalink": "/r/SpanishMeme/comments/ccc333/slug/",
+          "url": "https://i.redd.it/ccc333.jpg",
+          "score": 500,
+          "num_comments": 20,
+          "upvote_ratio": 0.95,
+          "created_utc": 1699982000,
+          "over_18": false,
+          "stickied": true,
+          "post_hint": "image",
+          "preview": {
+            "images": [
+              {
+                "source": {
+                  "url": "https://preview.redd.it/ccc333.jpg?width=640"
+                }
+              }
+            ]
+          }
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "ddd444",
+          "title": "Historia real: me confundieron con el jefe",
+          "subreddit": "memexico",
+          "author": "u_ddd444",
+          "selftext": "Llevaba camisa por primera vez en dos anios y de golpe todo el mundo me hacia caso.",
+          "permalink": "/r/memexico/comments/ddd444/slug/",
+          "url": "https://www.reddit.com/r/memexico/comments/ddd444/slug/",
+          "score": 800,
+          "num_comments": 260,
+          "upvote_ratio": 0.95,
+          "created_utc": 1699992800,
+          "over_18": false,
+          "stickied": false
+        }
+      },
+      {
+        "kind": "t3",
+        "data": {
+          "id": "eee555",
+          "title": "Contenido +18",
+          "subreddit": "memexico",
+          "author": "u_eee555",
+          "selftext": "",
+          "permalink": "/r/memexico/comments/eee555/slug/",
+          "url": "https://i.redd.it/eee555.jpg",
+          "score": 3000,
+          "num_comments": 40,
+          "upvote_ratio": 0.95,
+          "created_utc": 1699996400.0,
+          "over_18": true,
+          "stickied": false,
+          "post_hint": "image",
+          "preview": {
+            "images": [
+              {
+                "source": {
+                  "url": "https://preview.redd.it/eee555.jpg?width=640"
+                }
+              }
+            ]
+          }
+        }
+      }
+    ]
+  }
+}

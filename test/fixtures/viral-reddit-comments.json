@@ -1,0 +1,130 @@
+[
+  {
+    "kind": "Listing",
+    "data": {
+      "children": [
+        {
+          "kind": "t3",
+          "data": {
+            "id": "zzz999",
+            "title": "Cual fue la mentira mas cara de tu vida?",
+            "subreddit": "AskReddit",
+            "author": "u_zzz999",
+            "selftext": "",
+            "permalink": "/r/AskReddit/comments/zzz999/slug/",
+            "url": "https://www.reddit.com/r/AskReddit/comments/zzz999/slug/",
+            "score": 15000,
+            "num_comments": 4000,
+            "upvote_ratio": 0.95,
+            "created_utc": 1699978400,
+            "over_18": false,
+            "stickied": false
+          }
+        }
+      ]
+    }
+  },
+  {
+    "kind": "Listing",
+    "data": {
+      "children": [
+        {
+          "kind": "t1",
+          "data": {
+            "id": "c1",
+            "body": "Dije que sabia conducir manual. Acabe pagando el embrague de mi jefe.",
+            "author": "u_c1",
+            "score": 9800,
+            "created_utc": 1699982000,
+            "permalink": "/r/AskReddit/comments/zzz999/slug/c1/",
+            "subreddit": "AskReddit",
+            "stickied": false,
+            "replies": {
+              "kind": "Listing",
+              "data": {
+                "children": [
+                  {
+                    "kind": "t1",
+                    "data": {
+                      "id": "c1r1",
+                      "body": "Esto me paso literal, con la furgoneta de la empresa.",
+                      "author": "u_c1r1",
+                      "score": 1200,
+                      "created_utc": 1699985600,
+                      "permalink": "/r/AskReddit/comments/zzz999/slug/c1r1/",
+                      "subreddit": "AskReddit",
+                      "stickied": false,
+                      "replies": ""
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "kind": "t1",
+          "data": {
+            "id": "c2",
+            "body": "[deleted]",
+            "author": "u_c2",
+            "score": 50,
+            "created_utc": 1699985600,
+            "permalink": "/r/AskReddit/comments/zzz999/slug/c2/",
+            "subreddit": "AskReddit",
+            "stickied": false,
+            "replies": ""
+          }
+        },
+        {
+          "kind": "t1",
+          "data": {
+            "id": "c3",
+            "body": "Soy un bot y esto se hizo automaticamente. I am a bot.",
+            "author": "u_c3",
+            "score": 300,
+            "created_utc": 1699985600,
+            "permalink": "/r/AskReddit/comments/zzz999/slug/c3/",
+            "subreddit": "AskReddit",
+            "stickied": false,
+            "replies": ""
+          }
+        },
+        {
+          "kind": "t1",
+          "data": {
+            "id": "c4",
+            "body": "No",
+            "author": "u_c4",
+            "score": 4000,
+            "created_utc": 1699982000,
+            "permalink": "/r/AskReddit/comments/zzz999/slug/c4/",
+            "subreddit": "AskReddit",
+            "stickied": false,
+            "replies": ""
+          }
+        },
+        {
+          "kind": "t1",
+          "data": {
+            "id": "c5",
+            "body": "Le dije a mi novia que me encantaba su comida. Doce anios despues sigo comiendo eso todos los domingos y no se como salir del agujero que cave con mis propias manos aquel martes de septiembre.",
+            "author": "u_c5",
+            "score": 7000,
+            "created_utc": 1699982000,
+            "permalink": "/r/AskReddit/comments/zzz999/slug/c5/",
+            "subreddit": "AskReddit",
+            "stickied": false,
+            "replies": ""
+          }
+        },
+        {
+          "kind": "more",
+          "data": {
+            "count": 400
+          }
+        }
+      ]
+    }
+  }
+]

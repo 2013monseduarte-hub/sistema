@@ -1,0 +1,142 @@
+name: Virales
+
+# Ejecuta el buscador en los servidores de GitHub y te deja el resultado en un
+# issue del repo. Sin terminal, sin instalar nada: se lanza con el botón "Run
+# workflow" de la pestaña Actions, o solo, dos veces al día.
+#
+# Por qué un issue y no una página: GitHub renderiza tablas e imágenes en los
+# issues, y te llega al móvil por notificación. Una página necesitaría Pages
+# activado y no avisa de nada.
+
+on:
+  workflow_dispatch:
+    inputs:
+      pack:
+        description: 'Pack de comunidades'
+        default: memes-es
+        type: choice
+        options: [memes-es, memes, historias-es, historias, comentarios, comentarios-es, virales]
+      window:
+        description: 'Ventana de tiempo'
+        default: day
+        type: choice
+        options: [hour, day, week, month]
+      top:
+        description: 'Cuántos resultados'
+        default: '15'
+        type: string
+  schedule:
+    # 09:00 y 17:00 UTC. Dos pasadas al día es lo que hace útil el bloque
+    # "SIGUE SUBIENDO": con una sola no hay con qué comparar.
+    - cron: '0 9,17 * * *'
+
+# Solo lo justo: leer el código y escribir el issue.
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: virales
+  cancel-in-progress: false
+
+jobs:
+  buscar:
+    name: Buscar y publicar
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # Las búsquedas anteriores viven en la caché: sin ellas cada ejecución
+      # empieza de cero y `cambios` no tiene con qué comparar. La clave lleva
+      # el run_id (cada ejecución guarda una entrada nueva) y restore-keys
+      # recupera la más reciente.
+      - name: Recuperar búsquedas anteriores
+        uses: actions/cache@v4
+        with:
+          path: ~/.gstack/viral/runs
+          key: viral-runs-${{ github.run_id }}
+          restore-keys: viral-runs-
+
+      - name: Buscar
+        env:
+          PACK: ${{ inputs.pack || 'memes-es' }}
+          WINDOW: ${{ inputs.window || 'day' }}
+          TOP: ${{ inputs.top || '15' }}
+        run: |
+          set -euo pipefail
+          # Una sola pasada de red: la tabla va a stdout y el tablero al fichero.
+          # --sfw porque el issue es del repo y puede ser público.
+          bun run viral trending \
+            --pack "$PACK" --window "$WINDOW" -n "$TOP" \
+            --sfw --md --html tablero.html > tabla.raw.md
+          # La ruta local del tablero no le sirve a nadie dentro del issue;
+          # los avisos de comunidades caídas sí, así que esos se quedan.
+          grep -v '^Tablero HTML:' tabla.raw.md > tabla.md
+
+      - name: Qué sigue subiendo
+        run: |
+          set -euo pipefail
+          # Lee de disco, no de la red. En la primera ejecución todavía no hay
+          # con qué comparar y sale por 1: eso no es un fallo del trabajo.
+          bun run viral cambios > cambios.txt || true
+
+      - name: Componer el issue
+        run: |
+          set -euo pipefail
+          {
+            echo "## Qué sigue subiendo"
+            echo
+            echo '```'
+            cat cambios.txt
+            echo '```'
+            echo
+            echo "## Los 5 de arriba"
+            echo
+          } > cuerpo.md
+
+          # `ultimo` relee la búsqueda que se acaba de guardar: cero peticiones.
+          bun run viral ultimo --json -n 5 > top5.json
+          jq -r '.items[] |
+            "### [" + (if .title == "" then .text[0:90] else .title[0:90] end) + "](" + .url + ")\n\n" +
+            (if .mediaUrl then "<img src=\"" + .mediaUrl + "\" width=\"360\">\n\n" else "" end) +
+            "score " + (.metrics.viralScore | tostring) + " · " + (.score | tostring) + " votos · r/" + .community + "\n"
+          ' top5.json >> cuerpo.md
+
+          {
+            echo
+            echo "## Todo el ranking"
+            echo
+            cat tabla.md
+            echo
+            echo "---"
+            echo "Tablero con todas las imágenes: pestaña Actions → esta ejecución → Artifacts → \`tablero\`."
+          } >> cuerpo.md
+
+      - name: Guardar el tablero HTML
+        uses: actions/upload-artifact@v4
+        with:
+          name: tablero
+          path: tablero.html
+          retention-days: 14
+
+      - name: Publicar el issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          PACK: ${{ inputs.pack || 'memes-es' }}
+        run: |
+          set -euo pipefail
+          # Solo queda abierto el último: los anteriores se cierran, no se
+          # borran, así que el histórico sigue ahí para consultarlo.
+          gh issue list --state open --limit 50 --json number,title \
+            | jq -r '.[] | select(.title | startswith("Virales ·")) | .number' \
+            | while read -r n; do gh issue close "$n" --comment "Sustituido por una búsqueda más reciente."; done
+          gh issue create \
+            --title "Virales · $PACK · $(date -u '+%d/%m %H:%M UTC')" \
+            --body-file cuerpo.md

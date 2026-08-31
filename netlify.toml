@@ -1,0 +1,30 @@
+# Despliegue en Netlify del buscador de virales.
+#
+# Por qué aquí sí funciona y en una página normal no: la búsqueda corre en una
+# función del servidor, no en el navegador. El navegador tiene bloqueadas las
+# llamadas a otros dominios; el servidor de Netlify no.
+
+[build]
+  publish = "web"
+  # No hay nada que compilar: la página es estática y las funciones las
+  # empaqueta Netlify con esbuild.
+  command = "echo 'sin build: sitio estatico + funciones'"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+[functions]
+  directory = "netlify/functions"
+  node_bundler = "esbuild"
+
+[functions.environment]
+  # El recibo de egress quiere escribir en disco y en Lambda solo /tmp acepta
+  # escritura. Sin esto el recibo falla en silencio (es fail-open) y la
+  # búsqueda seguiría funcionando, pero perderíamos el registro.
+  GSTACK_HOME = "/tmp/gstack"
+
+# URL corta y estable, para no depender de la ruta interna de Netlify.
+[[redirects]]
+  from = "/api/buscar"
+  to = "/.netlify/functions/buscar"
+  status = 200

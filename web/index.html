@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="es">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Buscador de virales</title>
+<style>
+  :root { color-scheme: light dark; --bg:#fbfaf8; --fg:#1a1a1a; --mut:#6b6b6b; --card:#fff; --line:#e6e3de; --accent:#c2410c; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#141414; --fg:#ededed; --mut:#9a9a9a; --card:#1d1d1d; --line:#2e2e2e; --accent:#fb923c; }
+  }
+  * { box-sizing: border-box; }
+  body { margin:0; padding:32px 20px; background:var(--bg); color:var(--fg);
+         font:16px/1.55 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; }
+  main { max-width:620px; margin:0 auto; }
+  h1 { font-size:28px; margin:0 0 6px; letter-spacing:-0.01em; }
+  .lede { color:var(--mut); margin:0 0 28px; }
+  form { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:20px; }
+  label { display:block; font-size:13px; font-weight:600; margin:0 0 6px; }
+  .row { margin-bottom:16px; }
+  .cols { display:flex; gap:12px; }
+  .cols .row { flex:1; }
+  select, input { width:100%; font:inherit; font-size:15px; padding:9px 11px; border-radius:8px;
+                  border:1px solid var(--line); background:var(--bg); color:var(--fg); }
+  button { width:100%; font:inherit; font-size:16px; font-weight:600; padding:12px; margin-top:4px;
+           border:0; border-radius:9px; background:var(--accent); color:#fff; cursor:pointer; }
+  button:hover { filter:brightness(1.08); }
+  .hint { font-size:13px; color:var(--mut); margin:6px 0 0; }
+  .notas { margin-top:28px; font-size:14px; color:var(--mut); }
+  .notas h2 { font-size:15px; color:var(--fg); margin:22px 0 6px; }
+  .notas p { margin:0 0 10px; }
+  code { font-size:0.9em; background:var(--card); border:1px solid var(--line); border-radius:4px; padding:1px 5px; }
+</style>
+<main>
+  <h1>Buscador de virales</h1>
+  <p class="lede">Lo que está subiendo ahora mismo, ordenado por ritmo y no por votos acumulados.</p>
+
+  <form action="/api/buscar" method="get">
+    <div class="row">
+      <label for="pack">Dónde busco</label>
+      <select id="pack" name="pack">
+        <option value="memes-es">Memes en español</option>
+        <option value="memes">Memes en inglés</option>
+        <option value="historias-es">Historias reales en español</option>
+        <option value="historias">Historias reales en inglés</option>
+        <option value="comentarios-es">Hilos en español (el oro está en los comentarios)</option>
+        <option value="comentarios">Hilos en inglés</option>
+        <option value="virales">Mezcla amplia</option>
+      </select>
+    </div>
+
+    <div class="cols">
+      <div class="row">
+        <label for="ventana">De cuándo</label>
+        <select id="ventana" name="ventana">
+          <option value="hour">Última hora</option>
+          <option value="day" selected>Hoy</option>
+          <option value="week">Esta semana</option>
+          <option value="month">Este mes</option>
+        </select>
+      </div>
+      <div class="row">
+        <label for="top">Cuántos</label>
+        <select id="top" name="top">
+          <option>10</option>
+          <option selected>15</option>
+          <option>25</option>
+          <option>50</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="row">
+      <label for="q">Palabra clave (opcional)</label>
+      <input id="q" name="q" type="search" placeholder="gimnasio, jefe, lunes...">
+      <p class="hint">Vacío = lo más viral del momento. Con texto = busca ese tema.</p>
+    </div>
+
+    <button type="submit">Buscar</button>
+  </form>
+
+  <div class="notas">
+    <h2>Cómo se ordena</h2>
+    <p>Por velocidad, no por votos totales. Un meme de hace 40 minutos con 4.000 votos
+    gana a uno de 90.000 de hace tres días: ese ya pasó, este todavía lo podés montar.
+    El número 0-100 mezcla votos por hora, densidad de comentarios y, en los
+    comentarios, cuánto se puede levantar la frase tal cual.</p>
+
+    <h2>Qué vas a ver</h2>
+    <p>Un tablero con la imagen, el score, los votos por hora y el enlace al original.
+    Los crossposts del mismo chiste se juntan en una tarjeta marcada <code>×3</code>.
+    Si una comunidad no responde, te lo dice arriba en vez de desaparecer en silencio.</p>
+
+    <h2>Sobre copiar</h2>
+    <p>El formato se copia, el contenido concreto no. Cada tarjeta enlaza al original,
+    que es la atribución. Para sacar ángulos propios y comprobar que tu versión no es
+    un calco, están <code>viral remix</code> y <code>viral original</code> en la
+    herramienta de línea de comandos.</p>
+
+    <h2>Datos</h2>
+    <p>Listados públicos de Reddit, sin cuenta ni API key. La respuesta se cachea cinco
+    minutos, así que recargar no dispara otra ronda de peticiones.</p>
+  </div>
+</main>
+</html>
