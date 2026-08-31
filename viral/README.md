@@ -71,6 +71,30 @@ dice que las plataformas van a leer eso como duplicado.
 
 `gstack-viral --help` tiene la lista completa de opciones.
 
+## Sin terminal: que lo ejecute GitHub
+
+`.github/workflows/virales.yml` hace la búsqueda en los servidores de GitHub y
+deja el resultado en un issue del repo: tabla completa, las cinco de arriba con
+imagen, y el bloque de "qué sigue subiendo". Se lanza con el botón **Run
+workflow** de la pestaña Actions, o solo a las 09:00 y 17:00 UTC.
+
+Para que aparezca el botón y funcione el horario, el workflow tiene que estar en
+la rama por defecto del repo: GitHub solo ejecuta `schedule` y `workflow_dispatch`
+desde ahí. Mientras viva en una rama de trabajo, no se ejecuta.
+
+Detalles que importan:
+
+- Corre en `ubuntu-latest`, no en los runners de pago del repo original.
+- Las búsquedas anteriores viajan en la caché de Actions, que es lo que permite
+  que `cambios` tenga con qué comparar. Dos pasadas al día es lo que hace útil
+  ese bloque; con una sola no hay comparación.
+- Siempre `--sfw`, porque el issue puede ser público.
+- Solo queda abierto el issue más reciente; los anteriores se cierran (no se
+  borran) para que la lista no se llene.
+- El tablero HTML con todas las imágenes queda como artifact de la ejecución,
+  14 días.
+- Permisos del token: leer el código y escribir issues. Nada más.
+
 ## Packs
 
 Los packs son atajos: `--pack memes-es` en vez de escribir seis comunidades. Los
