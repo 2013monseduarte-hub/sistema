@@ -69,26 +69,50 @@ jobs:
           WINDOW: ${{ inputs.window || 'day' }}
           TOP: ${{ inputs.top || '15' }}
         run: |
-          set -euo pipefail
-          # Una sola pasada de red: la tabla va a stdout y el tablero al fichero.
-          # --sfw porque el issue es del repo y puede ser público.
+          # SIN set -e a propósito: una búsqueda vacía no puede matar el trabajo
+          # antes de publicar. Si Reddit nos bloquea o un pack entero está caído,
+          # el issue tiene que salir igual DICIENDO eso, que es la información
+          # que hace falta. Morir aquí deja al usuario sin resultados y sin motivo.
+          set -uo pipefail
+          # Una sola pasada de red: la tabla a stdout, los avisos a stderr,
+          # el tablero al fichero. --sfw porque el issue puede ser público.
           bun run viral trending \
             --pack "$PACK" --window "$WINDOW" -n "$TOP" \
-            --sfw --md --html tablero.html > tabla.raw.md
-          # La ruta local del tablero no le sirve a nadie dentro del issue;
-          # los avisos de comunidades caídas sí, así que esos se quedan.
-          grep -v '^Tablero HTML:' tabla.raw.md > tabla.md
+            --sfw --md --html tablero.html > tabla.raw.md 2> avisos.txt
+          echo "codigo de salida: $?"
+          touch tabla.raw.md avisos.txt
+          # La ruta local del tablero no le sirve a nadie dentro del issue.
+          grep -v '^Tablero HTML:' tabla.raw.md > tabla.md || true
+          echo "--- avisos (tambien van al log, no solo al issue) ---"
+          cat avisos.txt
 
       - name: Qué sigue subiendo
         run: |
-          set -euo pipefail
+          set -uo pipefail
           # Lee de disco, no de la red. En la primera ejecución todavía no hay
           # con qué comparar y sale por 1: eso no es un fallo del trabajo.
-          bun run viral cambios > cambios.txt || true
+          bun run viral cambios > cambios.txt 2>> avisos.txt || true
+          touch cambios.txt
 
       - name: Componer el issue
         run: |
-          set -euo pipefail
+          set -uo pipefail
+          : > cuerpo.md
+
+          # Si algo fue mal, eso va ARRIBA del todo: es lo que hay que leer.
+          if [ -s avisos.txt ]; then
+            {
+              echo "## Avisos"
+              echo
+              echo "Algo no respondió como debía. Esto es lo que dijo:"
+              echo
+              echo '```'
+              cat avisos.txt
+              echo '```'
+              echo
+            } >> cuerpo.md
+          fi
+
           {
             echo "## Qué sigue subiendo"
             echo
@@ -98,10 +122,10 @@ jobs:
             echo
             echo "## Los 5 de arriba"
             echo
-          } > cuerpo.md
+          } >> cuerpo.md
 
           # `ultimo` relee la búsqueda que se acaba de guardar: cero peticiones.
-          bun run viral ultimo --json -n 5 > top5.json
+          bun run viral ultimo --json -n 5 > top5.json 2>/dev/null || echo '{"items":[]}' > top5.json
           jq -r '.items[] |
             "### [" + (if .title == "" then .text[0:90] else .title[0:90] end) + "](" + .url + ")\n\n" +
             (if .mediaUrl then "<img src=\"" + .mediaUrl + "\" width=\"360\">\n\n" else "" end) +
@@ -124,6 +148,8 @@ jobs:
           name: tablero
           path: tablero.html
           retention-days: 14
+          # Una búsqueda sin resultados no genera tablero; eso no es un fallo.
+          if-no-files-found: ignore
 
       - name: Publicar el issue
         env:
