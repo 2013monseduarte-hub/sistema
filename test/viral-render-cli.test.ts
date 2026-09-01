@@ -173,26 +173,38 @@ describe('parseArgs', () => {
 });
 
 describe('main (no network)', () => {
+  // `lines` recoge ambos canales para que las aserciones lean como lo que ve
+  // el usuario en la terminal; `errLines` aparte para comprobar QUÉ canal usó
+  // cada mensaje, que es lo que decide si un aviso sobrevive a un `> fichero`.
   const capture = () => {
     const lines: string[] = [];
-    return { lines, out: (s: string) => lines.push(s) };
+    const errLines: string[] = [];
+    return {
+      lines,
+      errLines,
+      out: (s: string) => lines.push(s),
+      err: (s: string) => { lines.push(s); errLines.push(s); },
+    };
   };
 
-  test('--help prints usage and exits 0', async () => {
-    const { lines, out } = capture();
-    expect(await main(['--help'], out)).toBe(0);
+  test('--help prints usage and exits 0, all of it on stdout', async () => {
+    const { lines, errLines, out, err } = capture();
+    expect(await main(['--help'], out, err)).toBe(0);
     expect(lines.join('\n')).toBe(HELP);
+    expect(errLines).toEqual([]);
   });
 
-  test('a bad option exits 2 with the reason', async () => {
-    const { lines, out } = capture();
-    expect(await main(['trending', '--turbo'], out)).toBe(2);
+  test('a bad option exits 2 with the reason, on stderr', async () => {
+    const { lines, errLines, out, err } = capture();
+    expect(await main(['trending', '--turbo'], out, err)).toBe(2);
     expect(lines.join('\n')).toContain('--turbo');
+    // stdout suele estar redirigido a un fichero; un error ahí es un error invisible
+    expect(errLines.join('\n')).toContain('--turbo');
   });
 
   test('packs lists the built-ins and where to override them', async () => {
-    const { lines, out } = capture();
-    expect(await main(['packs'], out)).toBe(0);
+    const { lines, errLines, out, err } = capture();
+    expect(await main(['packs'], out, err)).toBe(0);
     const text = lines.join('\n');
     expect(text).toContain('memes-es');
     expect(text).toContain('r/SpanishMeme');
@@ -200,8 +212,8 @@ describe('main (no network)', () => {
   });
 
   test('remix --texto works with nothing saved and no network', async () => {
-    const { lines, out } = capture();
-    expect(await main(['remix', '--texto', 'Cuando el lunes te mira fijamente', '--nicho', 'gimnasio'], out)).toBe(0);
+    const { lines, errLines, out, err } = capture();
+    expect(await main(['remix', '--texto', 'Cuando el lunes te mira fijamente', '--nicho', 'gimnasio'], out, err)).toBe(0);
     const text = lines.join('\n');
     expect(text).toContain('Cambio de contexto');
     expect(text).toContain('gimnasio');
@@ -209,8 +221,8 @@ describe('main (no network)', () => {
   });
 
   test('remix --prompt appends a brief you can paste into a model', async () => {
-    const { lines, out } = capture();
-    await main(['remix', '--texto', 'algo', '--prompt'], out);
+    const { lines, errLines, out, err } = capture();
+    await main(['remix', '--texto', 'algo', '--prompt'], out, err);
     expect(lines.join('\n')).toContain('brief para pegar');
   });
 
@@ -219,20 +231,20 @@ describe('main (no network)', () => {
       meta: { ...meta, count: 1 },
       items: rank([item({ title: 'el post guardado' })], NOW),
     });
-    const { lines, out } = capture();
-    expect(await main(['remix', '1'], out)).toBe(0);
+    const { lines, errLines, out, err } = capture();
+    expect(await main(['remix', '1'], out, err)).toBe(0);
     expect(lines.join('\n')).toContain('el post guardado');
   });
 
   test('remix on an index that does not exist says how many there were', async () => {
-    const { lines, out } = capture();
-    expect(await main(['remix', '99'], out)).toBe(1);
+    const { lines, errLines, out, err } = capture();
+    expect(await main(['remix', '99'], out, err)).toBe(1);
     expect(lines.join('\n')).toContain('no 99');
   });
 
   test('ultimo reprints the saved run without touching the network', async () => {
-    const { lines, out } = capture();
-    expect(await main(['ultimo'], out)).toBe(0);
+    const { lines, errLines, out, err } = capture();
+    expect(await main(['ultimo'], out, err)).toBe(0);
     expect(lines.join('\n')).toContain('el post guardado');
   });
 
@@ -242,8 +254,8 @@ describe('main (no network)', () => {
     const b = path.join(dir, 'b.txt');
     fs.writeFileSync(a, 'Dije que sabía conducir manual y acabé pagando el embrague de mi jefe.');
     fs.writeFileSync(b, 'Dije que sabía conducir manual y acabé pagando el embrague de mi jefa.');
-    const { lines, out } = capture();
-    expect(await main(['original', a, b], out)).toBe(3);
+    const { lines, errLines, out, err } = capture();
+    expect(await main(['original', a, b], out, err)).toBe(3);
     expect(lines.join('\n')).toContain('duplicado');
     fs.rmSync(dir, { recursive: true, force: true });
   });
@@ -254,8 +266,8 @@ describe('main (no network)', () => {
     const b = path.join(dir, 'b.txt');
     fs.writeFileSync(a, 'Dije que sabía conducir manual y acabé pagando el embrague de mi jefe.');
     fs.writeFileSync(b, 'Mentí sobre saber Kubernetes en la entrevista y tres semanas después arreglaba producción un domingo.');
-    const { lines, out } = capture();
-    expect(await main(['original', a, b], out)).toBe(0);
+    const { lines, errLines, out, err } = capture();
+    expect(await main(['original', a, b], out, err)).toBe(0);
     expect(lines.join('\n')).toContain('se sostiene sola');
     fs.rmSync(dir, { recursive: true, force: true });
   });
@@ -266,8 +278,8 @@ describe('main (no network)', () => {
     process.env.GSTACK_HOME = solo;
     try {
       saveRun({ meta: { ...meta, createdAt: '2026-09-01T10:00:00.000Z' }, items: rank([item()], NOW) });
-      const { lines, out } = capture();
-      expect(await main(['cambios'], out)).toBe(1);
+      const { lines, errLines, out, err } = capture();
+      expect(await main(['cambios'], out, err)).toBe(1);
       expect(lines.join('\n')).toContain('dos búsquedas');
     } finally {
       process.env.GSTACK_HOME = previous;
@@ -285,8 +297,8 @@ describe('main (no network)', () => {
       meta: { ...meta, createdAt: '2026-09-01T12:00:00.000Z' },
       items: rank([{ ...base, score: 9000 }], NOW),
     });
-    const { lines, out } = capture();
-    expect(await main(['cambios'], out)).toBe(0);
+    const { lines, errLines, out, err } = capture();
+    expect(await main(['cambios'], out, err)).toBe(0);
     const text = lines.join('\n');
     expect(text).toContain('SIGUE SUBIENDO');
     expect(text).toContain('este sigue subiendo');
@@ -294,16 +306,22 @@ describe('main (no network)', () => {
   });
 
   test('cambios --json hands back the structured diff', async () => {
-    const { lines, out } = capture();
-    expect(await main(['cambios', '--json'], out)).toBe(0);
+    const { lines, errLines, out, err } = capture();
+    expect(await main(['cambios', '--json'], out, err)).toBe(0);
     const parsed = JSON.parse(lines.join('\n'));
     expect(parsed.hoursBetween).toBe(2);
     expect(parsed.entries[0].trend).toBe('acelera');
   });
 
-  test('an unknown pack names the command that lists the real ones', async () => {
-    const { lines, out } = capture();
-    expect(await main(['trending', '--pack', 'no-existe'], out)).toBe(1);
-    expect(lines.join('\n')).toContain('gstack-viral packs');
+  test('an unknown pack names the command that lists the real ones, on stderr', async () => {
+    const { lines, errLines, out, err } = capture();
+    expect(await main(['trending', '--pack', 'no-existe'], out, err)).toBe(1);
+    expect(errLines.join('\n')).toContain('gstack-viral packs');
+  });
+
+  test('los datos siguen en stdout: packs y resultados no se van al canal de errores', async () => {
+    const { errLines, out, err } = capture();
+    await main(['packs'], out, err);
+    expect(errLines).toEqual([]);
   });
 });
