@@ -16,11 +16,21 @@ import { sha256Hex, writeReceipt } from '../../lib/egress-receipt';
 
 export type FetchLike = typeof globalThis.fetch;
 
+export interface ReceiptOptions {
+  /**
+   * Poner a false cuando el cuerpo lleva credenciales (el intercambio de token
+   * de Reddit). El recibo registra igual el destino y el tamaño; lo que no
+   * guarda es un hash de una contraseña.
+   */
+  hashBody?: boolean;
+}
+
 export async function receiptedFetch(
   payloadClass: string,
   url: string,
   init?: RequestInit,
   fetchImpl: FetchLike = globalThis.fetch,
+  options: ReceiptOptions = {},
 ): Promise<Response> {
   try {
     const body = init?.body;
@@ -28,7 +38,7 @@ export async function receiptedFetch(
     let sha256: string | null = null;
     if (typeof body === 'string') {
       bytes = Buffer.byteLength(body);
-      sha256 = sha256Hex(body);
+      if (options.hashBody !== false) sha256 = sha256Hex(body);
     }
     writeReceipt({
       sink: 'viral-scrape',
