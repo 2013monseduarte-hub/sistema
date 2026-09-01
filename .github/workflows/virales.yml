@@ -69,11 +69,21 @@ jobs:
       - name: Comprobar acceso a Reddit
         run: |
           set +e
-          curl -sS -o /dev/null -m 20 \
-            -A "gstack-viral/0.1 (personal content research)" \
-            -w 'reddit responde: HTTP %{http_code} en %{time_total}s\n' \
-            "https://www.reddit.com/r/memes/top.json?t=day&limit=1"
-          echo "(200 = bien · 403 = nos bloquea por ser IP de nube · 429 = demasiadas peticiones)"
+          # Tres agentes distintos contra el mismo endpoint. Es lo que separa
+          # un bloqueo por IP (todos fallan igual) de uno por User-Agent (el de
+          # navegador pasa), y eso decide si esta vía tiene arreglo o no.
+          probar() {
+            curl -sS -o /dev/null -m 20 -A "$2" \
+              -w "  $1 -> HTTP %{http_code} (%{time_total}s)\n" \
+              "$3"
+          }
+          echo "www.reddit.com:"
+          probar "propio     " "gstack-viral/0.1 (personal content research)" "https://www.reddit.com/r/memes/top.json?t=day&limit=1"
+          probar "navegador  " "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36" "https://www.reddit.com/r/memes/top.json?t=day&limit=1"
+          probar "vacio      " "" "https://www.reddit.com/r/memes/top.json?t=day&limit=1"
+          echo "old.reddit.com (otro borde, mismo contenido):"
+          probar "navegador  " "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0 Safari/537.36" "https://old.reddit.com/r/memes/top.json?t=day&limit=1"
+          echo "(200 = pasa · 403 = bloqueo · si TODOS dan 403 es la IP, no el agente)"
 
       - name: Buscar
         env:
@@ -166,18 +176,26 @@ jobs:
           # Una búsqueda sin resultados no genera tablero; eso no es un fallo.
           if-no-files-found: ignore
 
+      # El resumen de la ejecución SIEMPRE recibe el resultado: se ve en la
+      # propia página del run, renderiza markdown e imágenes, y no depende de
+      # que el repo tenga los Issues activados.
+      - name: Escribir el resumen de la ejecución
+        run: cat cuerpo.md >> "$GITHUB_STEP_SUMMARY"
+
       - name: Publicar el issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_REPO: ${{ github.repository }}
           PACK: ${{ inputs.pack || 'memes-es' }}
         run: |
-          set -euo pipefail
-          # Solo queda abierto el último: los anteriores se cierran, no se
-          # borran, así que el histórico sigue ahí para consultarlo.
-          gh issue list --state open --limit 50 --json number,title \
+          set +e
+          # Los Issues pueden estar desactivados en el repo. Eso no es motivo
+          # para tumbar la ejecución: el resultado ya está en el resumen.
+          gh issue list --state open --limit 50 --json number,title 2>/dev/null \
             | jq -r '.[] | select(.title | startswith("Virales ·")) | .number' \
             | while read -r n; do gh issue close "$n" --comment "Sustituido por una búsqueda más reciente."; done
-          gh issue create \
-            --title "Virales · $PACK · $(date -u '+%d/%m %H:%M UTC')" \
-            --body-file cuerpo.md
+          if ! gh issue create \
+              --title "Virales · $PACK · $(date -u '+%d/%m %H:%M UTC')" \
+              --body-file cuerpo.md; then
+            echo "::warning::No pude publicar el issue (¿Issues desactivados en el repo?). El resultado está en el resumen de esta ejecución."
+          fi
