@@ -234,9 +234,17 @@ function emit(items: ViralItem[], meta: RunMeta, flags: Flags, out: (s: string) 
   }
 }
 
-function reportErrors(result: SourceResult, out: (s: string) => void): void {
+/**
+ * Los avisos van a STDERR, nunca a stdout.
+ *
+ * Es la diferencia entre ver el problema y no verlo: en cuanto alguien redirige
+ * la salida a un fichero (`> tabla.md`, que es justo lo que hace el workflow),
+ * un aviso escrito en stdout desaparece dentro del fichero de datos y lo único
+ * que queda es un código de salida sin explicación.
+ */
+function reportErrors(result: SourceResult, err: (s: string) => void): void {
   for (const e of result.errors) {
-    out(`[aviso] r/${e.community}: ${e.reason} — ¿existe, es privada, o cambió de nombre?`);
+    err(`[aviso] r/${e.community}: ${e.reason} — ¿existe, es privada, o cambió de nombre?`);
   }
 }
 
@@ -252,12 +260,16 @@ function meta(flags: Flags, communities: string[], count: number): RunMeta {
   };
 }
 
-export async function main(argv: string[], out: (s: string) => void = (s) => process.stdout.write(`${s}\n`)): Promise<number> {
+export async function main(
+  argv: string[],
+  out: (s: string) => void = (s) => process.stdout.write(`${s}\n`),
+  err: (s: string) => void = (s) => process.stderr.write(`${s}\n`),
+): Promise<number> {
   let flags: Flags;
   try {
     flags = parseArgs(argv);
-  } catch (err) {
-    out(`Error: ${(err as Error).message}`);
+  } catch (parseError) {
+    err(`Error: ${(parseError as Error).message}`);
     return 2;
   }
   if (flags.help || flags.command === 'ayuda') {
@@ -281,7 +293,7 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
       case 'ultimo': {
         const run = latestRun();
         if (!run) {
-          out('No hay búsquedas guardadas todavía. Lanza: gstack-viral trending');
+          err('No hay búsquedas guardadas todavía. Lanza: gstack-viral trending');
           return 1;
         }
         emit(run.items.slice(0, flags.top), run.meta, flags, out);
@@ -291,7 +303,7 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
       case 'original': {
         const [a, b] = flags.positional;
         if (!a || !b) {
-          out('Uso: gstack-viral original <archivo-original> <archivo-tuyo>');
+          err('Uso: gstack-viral original <archivo-original> <archivo-tuyo>');
           return 2;
         }
         const check = originalityCheck(fs.readFileSync(a, 'utf-8'), fs.readFileSync(b, 'utf-8'));
@@ -336,11 +348,11 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
       case 'comentarios': {
         const ref = flags.positional[0];
         if (!ref) {
-          out('Uso: gstack-viral comentarios <url-del-post|id>');
+          err('Uso: gstack-viral comentarios <url-del-post|id>');
           return 2;
         }
         const result = await reddit.fetchComments(ref, { limit: flags.limit });
-        reportErrors(result, out);
+        reportErrors(result, err);
         const items = shortlist(result.items, flags);
         const runMeta = meta(flags, [items[0]?.community ?? ''], items.length);
         if (flags.save) saveRun({ meta: runMeta, items });
@@ -350,7 +362,7 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
 
       case 'mina': {
         const { result, communities } = await collect(flags);
-        reportErrors(result, out);
+        reportErrors(result, err);
         const posts = shortlist(result.items, flags);
         // Only open threads that can HAVE a quotable reply. An image meme's
         // comments are reaction gifs, and every request spent there is one not
@@ -362,7 +374,7 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
           threads.map((t) => t.id),
           { limit: 50, delayMs: flags.delayMs },
         );
-        reportErrors(commentResult, out);
+        reportErrors(commentResult, err);
         const comments = shortlist(commentResult.items, flags);
         const items = [...posts, ...comments];
         const runMeta = meta(flags, communities, items.length);
@@ -371,8 +383,8 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
         emit(posts, runMeta, { ...flags, html: undefined }, out);
         out(`COMENTARIOS REUTILIZABLES (de ${threads.length} hilo(s) de texto)`);
         if (threads.length === 0) {
-          out('   Este pack solo trajo memes de imagen: ahí los comentarios no dan material.');
-          out('   Prueba --pack comentarios-es o --pack historias-es.');
+          err('   Este pack solo trajo memes de imagen: ahí los comentarios no dan material.');
+          err('   Prueba --pack comentarios-es o --pack historias-es.');
         }
         emit(comments, runMeta, flags, out);
         return items.length > 0 ? 0 : 1;
@@ -382,9 +394,9 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
         const runs = listRuns();
         const earlierFile = flags.positional[0];
         if (!earlierFile && runs.length < 2) {
-          out('Necesito dos búsquedas para comparar. Lanza la misma otra vez dentro de un rato:');
-          out('   gstack-viral trending --pack memes-es   (ahora)');
-          out('   gstack-viral cambios                    (dentro de una hora)');
+          err('Necesito dos búsquedas para comparar. Lanza la misma otra vez dentro de un rato:');
+          err('   gstack-viral trending --pack memes-es   (ahora)');
+          err('   gstack-viral cambios                    (dentro de una hora)');
           return 1;
         }
         const current = loadRun(runs[runs.length - 1]);
@@ -398,7 +410,7 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
       case 'trending':
       case 'buscar': {
         const { result, communities } = await collect(flags);
-        reportErrors(result, out);
+        reportErrors(result, err);
         const items = shortlist(result.items, flags);
         const runMeta = meta(flags, communities, items.length);
         if (flags.save) saveRun({ meta: runMeta, items });
@@ -408,12 +420,12 @@ export async function main(argv: string[], out: (s: string) => void = (s) => pro
       }
 
       default:
-        out(`Comando desconocido: ${flags.command}`);
+        err(`Comando desconocido: ${flags.command}`);
         out(HELP);
         return 2;
     }
-  } catch (err) {
-    out(`Error: ${(err as Error).message}`);
+  } catch (runError) {
+    err(`Error: ${(runError as Error).message}`);
     return 1;
   }
 }
