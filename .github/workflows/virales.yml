@@ -63,16 +63,30 @@ jobs:
           key: viral-runs-${{ github.run_id }}
           restore-keys: viral-runs-
 
+      # Diagnóstico de una línea. Reddit bloquea rangos de IP de nube, y cuando
+      # lo hace la única pregunta que importa es qué código devuelve. Verlo aquí
+      # separa "mi código falla" de "este servidor no nos deja entrar".
+      - name: Comprobar acceso a Reddit
+        run: |
+          set +e
+          curl -sS -o /dev/null -m 20 \
+            -A "gstack-viral/0.1 (personal content research)" \
+            -w 'reddit responde: HTTP %{http_code} en %{time_total}s\n' \
+            "https://www.reddit.com/r/memes/top.json?t=day&limit=1"
+          echo "(200 = bien · 403 = nos bloquea por ser IP de nube · 429 = demasiadas peticiones)"
+
       - name: Buscar
         env:
           PACK: ${{ inputs.pack || 'memes-es' }}
           WINDOW: ${{ inputs.window || 'day' }}
           TOP: ${{ inputs.top || '15' }}
         run: |
-          # SIN set -e a propósito: una búsqueda vacía no puede matar el trabajo
-          # antes de publicar. Si Reddit nos bloquea o un pack entero está caído,
-          # el issue tiene que salir igual DICIENDO eso, que es la información
-          # que hace falta. Morir aquí deja al usuario sin resultados y sin motivo.
+          # `set +e` explícito, y no basta con omitir `set -e`: GitHub invoca
+          # cada paso como `bash -e {0}`, así que errexit ya viene puesto desde
+          # fuera y un `set -uo pipefail` NO lo quita. Sin esta línea, una
+          # búsqueda vacía mata el trabajo antes de publicar y te deja sin
+          # resultados y sin motivo, que es justo lo que pasó en los runs 1-3.
+          set +e
           set -uo pipefail
           # Una sola pasada de red: la tabla a stdout, los avisos a stderr,
           # el tablero al fichero. --sfw porque el issue puede ser público.
@@ -96,6 +110,7 @@ jobs:
 
       - name: Componer el issue
         run: |
+          set +e
           set -uo pipefail
           : > cuerpo.md
 
@@ -130,7 +145,7 @@ jobs:
             "### [" + (if .title == "" then .text[0:90] else .title[0:90] end) + "](" + .url + ")\n\n" +
             (if .mediaUrl then "<img src=\"" + .mediaUrl + "\" width=\"360\">\n\n" else "" end) +
             "score " + (.metrics.viralScore | tostring) + " · " + (.score | tostring) + " votos · r/" + .community + "\n"
-          ' top5.json >> cuerpo.md
+          ' top5.json >> cuerpo.md || true
 
           {
             echo
