@@ -67,8 +67,16 @@ jobs:
       # lo hace la única pregunta que importa es qué código devuelve. Verlo aquí
       # separa "mi código falla" de "este servidor no nos deja entrar".
       - name: Comprobar acceso a Reddit
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
         run: |
           set +e
+          if [ -n "${REDDIT_CLIENT_ID:-}" ]; then
+            echo "Credenciales presentes: las lecturas irán por la API oficial (oauth.reddit.com)."
+          else
+            echo "::warning::Sin REDDIT_CLIENT_ID. Desde una IP de nube la vía anónima da 403 y no habrá resultados."
+          fi
+          echo "Referencia — así responde la vía anónima desde este runner:"
           # Tres agentes distintos contra el mismo endpoint. Es lo que separa
           # un bloqueo por IP (todos fallan igual) de uno por User-Agent (el de
           # navegador pasa), y eso decide si esta vía tiene arreglo o no.
@@ -90,6 +98,13 @@ jobs:
           PACK: ${{ inputs.pack || 'memes-es' }}
           WINDOW: ${{ inputs.window || 'day' }}
           TOP: ${{ inputs.top || '15' }}
+          # Reddit responde 403 al tráfico anónimo desde IPs de nube. Con estos
+          # secretos las lecturas van por la API oficial, que sí atiende a
+          # clientes registrados. Sin ellos el paso corre igual y avisa.
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          REDDIT_USERNAME: ${{ secrets.REDDIT_USERNAME }}
+          REDDIT_PASSWORD: ${{ secrets.REDDIT_PASSWORD }}
         run: |
           # `set +e` explícito, y no basta con omitir `set -e`: GitHub invoca
           # cada paso como `bash -e {0}`, así que errexit ya viene puesto desde

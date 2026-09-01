@@ -142,12 +142,48 @@ Los tuyos van en `~/.gstack/viral/packs.json` y pisan a los de fábrica:
 }
 ```
 
+## Desde un servidor: credenciales obligatorias
+
+En tu máquina no hace falta nada. Desde un servidor, sí.
+
+Reddit responde **403 al tráfico anónimo que sale de IPs de proveedores de nube**.
+Comprobado en un runner de GitHub con cuatro combinaciones (User-Agent propio, de
+navegador, ninguno, y contra `old.reddit.com`): las cuatro rechazadas en menos de
+0,1 s. No es el agente, es la IP, y no hay arreglo por código en la vía anónima.
+Un cliente registrado en la API oficial sí tiene entrada.
+
+Cómo registrarse, una vez y para siempre:
+
+1. Entra en <https://www.reddit.com/prefs/apps> y pulsa **create another app**.
+2. Tipo **script**. Nombre, el que quieras. En *redirect uri* pon
+   `http://localhost:8080` (no se usa, pero el formulario lo pide).
+3. Al crearla salen dos cadenas: el **id** (debajo del nombre, corto) y el
+   **secret**.
+
+Y dónde ponerlas:
+
+| Dónde | Cómo |
+|---|---|
+| Tu máquina | `export REDDIT_CLIENT_ID=... REDDIT_CLIENT_SECRET=...` |
+| GitHub Actions | Settings → Secrets and variables → Actions → New repository secret |
+| Netlify | Site configuration → Environment variables |
+
+Con `REDDIT_CLIENT_ID` y `REDDIT_CLIENT_SECRET` basta. Si además pones
+`REDDIT_USERNAME` y `REDDIT_PASSWORD` (los de tu cuenta), se usa el grant
+`password`, que es el camino más fiable para una app de tipo script.
+
+Sin credenciales no se rompe nada: se sigue por la vía anónima de siempre, que
+funciona desde casa y falla desde un servidor.
+
 ## De dónde salen los datos
 
 Listados públicos `.json` de Reddit: las mismas páginas que abres en el navegador,
 sin API key y sin login. Una petición cada 700 ms (también entre las lecturas de
 comentarios: la pausa vive en el adaptador, no en quien lo llama), `limit` tope
 100. Es un lector de investigación, no un crawler.
+
+Con credenciales las lecturas van a `oauth.reddit.com` con un token que se pide
+una vez por ejecución y se reutiliza hasta que caduca.
 
 Si el servidor responde `429` o un `5xx`, se reintenta dos veces respetando la
 cabecera `Retry-After`, y si pide más de un minuto se abandona en vez de dejar la
@@ -184,6 +220,7 @@ viral/src/
   store.ts            ~/.gstack/viral/runs/ (0600, se podan a 50)
   receipted-fetch.ts  recibo de egress + reintentos ante 429/5xx
   sources/reddit.ts   adaptador: URLs, parseo puro, errores por comunidad
+  sources/reddit-auth.ts  token de la API oficial (necesario desde un servidor)
 ```
 
 Tests: `test/viral-*.test.ts` (gratis, sin red — el fetch va inyectado).
