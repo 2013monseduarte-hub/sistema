@@ -1,7 +1,59 @@
-# viral — buscador de memes y comentarios virales
+# viral
 
-Encuentra lo que está explotando **ahora**, te dice **por qué** funcionó, y te da
-ángulos para hacer tu propia versión sin que sea un calco.
+**Buscador de contenido que está explotando en este momento, que además explica
+por qué funcionó y propone caminos para hacer tu propia versión.**
+
+## Qué es
+
+Los rankings de cualquier red ordenan por votos acumulados, y eso ordena el
+pasado. Un post con 90.000 votos de hace tres días ya terminó su recorrido: lo
+ves cuando ya no sirve de nada. Uno con 4.000 de hace cuarenta minutos todavía
+está subiendo, y ese sí lo puedes montar.
+
+`viral` ordena por **ritmo** (votos por hora) en vez de por total. Esa es toda la
+tesis, y de ella sale el resto: qué mirar, qué comparar entre dos búsquedas, y
+qué merece la pena adaptar hoy en vez de mañana.
+
+Lee de Reddit, que funciona como cantera: el formato que acaba en Instagram o
+TikTok suele pasar por ahí entre 24 y 72 horas antes.
+
+## Qué hace
+
+**1. Encuentra.** Busca en comunidades agrupadas por tema (memes en español,
+historias reales, hilos donde el material está en los comentarios). Le das el
+tema y la ventana de tiempo.
+
+**2. Puntúa de 0 a 100.** Velocidad, densidad de comentarios y, en los
+comentarios, cuánto se puede levantar la frase tal cual. Un comentario con 4.000
+votos que solo dice "No" cae a 50: mucho voto, cero material.
+
+**3. Compara dos búsquedas.** Lanzas por la mañana y otra vez por la tarde, y
+`cambios` separa lo que **sigue subiendo** de lo que ya se enfría. Es la parte
+con más valor: coger algo en subida es el negocio entero.
+
+**4. Propone ángulos.** Seis formas concretas de rehacer una idea en tu contexto
+(cambio de escenario, historia real, opinión contraria, cambio de formato,
+localización, pregunta abierta), cada una con gancho y formato. Y un freno:
+`original` compara tu borrador con la fuente y avisa cuando sigue siendo la misma
+publicación con otra tipografía.
+
+## Qué NO hace
+
+Deliberadamente, y conviene tenerlo claro antes de empezar:
+
+- **No publica por ti.** No se conecta a tus cuentas ni postea nada.
+- **No escribe el contenido.** Da ángulos, y un guion listo para pegar en un
+  modelo si lo quieres. La voz la pones tú.
+- **No mide tu cuenta.** Dice qué funciona fuera, no cómo van tus publicaciones.
+- **No copia por ti.** Enlaza siempre al original, que es la atribución, y empuja
+  al cambio profundo antes que al cosmético. Ver [Sobre copiar](#sobre-copiar).
+- **Solo lee Reddit, de momento.** Añadir una fuente es escribir un adaptador;
+  el obstáculo no es el código, son los permisos de cada plataforma.
+
+## Empezar
+
+Necesitas [Bun](https://bun.sh). No hay dependencias que instalar: el módulo usa
+solo módulos internos de Node.
 
 ```bash
 bun run viral trending --pack memes-es --window day -n 20
@@ -16,11 +68,23 @@ bun run viral original original.txt borrador.txt               # ¿es un calco?
 Instalado como binario del stack: `bin/gstack-viral <comando>` (mismo argumento,
 sin `bun run`).
 
-## Qué hace distinto
+La rutina que rinde son dos pasadas al día: una por la mañana y otra unas horas
+después, y entre ellas `cambios`. Con una sola búsqueda no hay nada que comparar.
 
-**Puntúa por velocidad, no por votos totales.** Un post de hace 40 minutos con
-4.000 votos vale más que uno de 90.000 de hace tres días: el segundo ya pasó, el
-primero todavía lo puedes montar. El score 0-100 pesa:
+## Estado
+
+Desde tu máquina funciona tal cual: sin credenciales, sin registro, sin
+instalación de dependencias.
+
+Desde un servidor (GitHub Actions, Netlify) hace falta registrar una app en
+Reddit, porque Reddit responde `403` al tráfico anónimo que sale de IPs de
+proveedores de nube. Está comprobado en un runner y documentado en
+[Desde un servidor](#desde-un-servidor-credenciales-obligatorias).
+
+## Cómo puntúa
+
+El score de 0 a 100 sale de estos cuatro componentes. La velocidad va en escala
+logarítmica, que es lo que evita que un pico aislado se coma el ranking:
 
 | Componente | Peso (posts) | Peso (comentarios) | Qué mide |
 |---|---|---|---|
@@ -31,6 +95,8 @@ primero todavía lo puedes montar. El score 0-100 pesa:
 
 La reutilizabilidad premia el texto de 40 a 280 caracteres (largo de titular o de
 pie de foto), castiga los enlaces, y pone a cero los `[deleted]` y los bots.
+
+## Decisiones que vas a notar
 
 **Busca también en los comentarios.** El oro de un hilo casi nunca es el post: es
 la respuesta con 9.000 votos que cabe en una imagen. `mina` trae los dos en una
