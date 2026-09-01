@@ -16,6 +16,7 @@
 
 import type { SourceResult, ViralItem } from '../types';
 import { receiptedFetch, type FetchLike } from '../receipted-fetch';
+import { authFromEnv, getAccessToken, hasCredentials, toOAuthUrl, type AuthConfig } from './reddit-auth';
 
 export const USER_AGENT = 'gstack-viral/0.1 (personal content research; +https://github.com/garrytan/gstack)';
 export const MAX_LIMIT = 100;
@@ -41,6 +42,12 @@ export interface FetchOptions {
   retries?: number;
   /** injectable sleep — tests pace a whole retry ladder without waiting for it */
   sleepImpl?: (ms: number) => Promise<void>;
+  /**
+   * Credenciales de la API oficial. Por defecto se leen del entorno; con ellas
+   * las peticiones van al host autenticado, que es la única forma de leer
+   * Reddit desde una IP de nube (ver reddit-auth.ts). Sin ellas, vía anónima.
+   */
+  auth?: AuthConfig;
 }
 
 const IMAGE_EXT = /\.(jpe?g|png|gif|webp)(\?|$)/i;
@@ -194,14 +201,27 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 async function getJson(payloadClass: string, url: string, opts: FetchOptions = {}): Promise<unknown> {
   const retries = opts.retries ?? MAX_RETRIES;
   const nap = opts.sleepImpl ?? sleep;
+  const auth = opts.auth ?? authFromEnv();
+
+  // Con credenciales: host autenticado y cabecera Bearer. Sin ellas: como
+  // siempre. El fallo al pedir el token se propaga tal cual, porque
+  // "credenciales mal" y "subreddit caído" son problemas distintos y no deben
+  // parecer el mismo aviso.
+  let target = url;
+  const headers: Record<string, string> = { 'User-Agent': USER_AGENT, Accept: 'application/json' };
+  if (hasCredentials(auth)) {
+    headers.Authorization = `bearer ${await getAccessToken({ ...auth, fetchImpl: opts.fetchImpl ?? auth.fetchImpl, userAgent: USER_AGENT })}`;
+    target = toOAuthUrl(url);
+  }
+
   let lastError = new Error('HTTP 0');
   for (let attempt = 0; attempt <= retries; attempt++) {
     let wait: number | null = null;
     try {
       const res = await receiptedFetch(
         payloadClass,
-        url,
-        { headers: { 'User-Agent': USER_AGENT, Accept: 'application/json' } },
+        target,
+        { headers },
         opts.fetchImpl ?? globalThis.fetch,
       );
       if (res.ok) return await res.json();

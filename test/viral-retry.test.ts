@@ -50,7 +50,7 @@ function scripted(statuses: (number | 'throw')[], payload: unknown, headers: Rec
       json: async () => payload,
     } as unknown as Response;
   }) as typeof globalThis.fetch;
-  return { fetchImpl, calls: () => call };
+  return { auth: {}, fetchImpl, calls: () => call };
 }
 
 function recorder() {
@@ -91,9 +91,9 @@ describe('retryDelayMs', () => {
 
 describe('getJson retries', () => {
   test('a 429 is retried and the run recovers', async () => {
-    const { fetchImpl, calls } = scripted([429, 200], listing, { 'Retry-After': '2' });
+    const { auth: {}, fetchImpl, calls } = scripted([429, 200], listing, { 'Retry-After': '2' });
     const { waits, sleepImpl } = recorder();
-    const result = await fetchCommunities(['memes'], { fetchImpl, sleepImpl, delayMs: 0 });
+    const result = await fetchCommunities(['memes'], { auth: {}, fetchImpl, sleepImpl, delayMs: 0 });
     expect(calls()).toBe(2);
     expect(waits).toEqual([2000]);
     expect(result.errors).toEqual([]);
@@ -107,51 +107,51 @@ describe('getJson retries', () => {
   });
 
   test('a 404 is not retried — the answer will not change', async () => {
-    const { fetchImpl, calls } = scripted([404], listing);
+    const { auth: {}, fetchImpl, calls } = scripted([404], listing);
     const { waits, sleepImpl } = recorder();
-    const result = await fetchCommunities(['yaNoExiste'], { fetchImpl, sleepImpl, delayMs: 0 });
+    const result = await fetchCommunities(['yaNoExiste'], { auth: {}, fetchImpl, sleepImpl, delayMs: 0 });
     expect(calls()).toBe(1);
     expect(waits).toEqual([]);
     expect(result.errors[0].reason).toBe('HTTP 404');
   });
 
   test('a network fault is retried too, then reported', async () => {
-    const { fetchImpl, calls } = scripted(['throw'], listing);
+    const { auth: {}, fetchImpl, calls } = scripted(['throw'], listing);
     const { waits, sleepImpl } = recorder();
-    const result = await fetchCommunities(['memes'], { fetchImpl, sleepImpl, delayMs: 0 });
+    const result = await fetchCommunities(['memes'], { auth: {}, fetchImpl, sleepImpl, delayMs: 0 });
     expect(calls()).toBe(MAX_RETRIES + 1);
     expect(waits).toEqual([1000, 2000]);
     expect(result.errors[0].reason).toBe('socket hang up');
   });
 
   test('a sustained throttle gives up after the ladder and says 429', async () => {
-    const { fetchImpl, calls } = scripted([429], listing);
+    const { auth: {}, fetchImpl, calls } = scripted([429], listing);
     const { sleepImpl } = recorder();
-    const result = await fetchCommunities(['memes'], { fetchImpl, sleepImpl, delayMs: 0 });
+    const result = await fetchCommunities(['memes'], { auth: {}, fetchImpl, sleepImpl, delayMs: 0 });
     expect(calls()).toBe(MAX_RETRIES + 1);
     expect(result.errors[0].reason).toBe('HTTP 429');
   });
 
   test('a Retry-After longer than the ceiling stops the ladder immediately', async () => {
-    const { fetchImpl, calls } = scripted([503], listing, { 'Retry-After': '7200' });
+    const { auth: {}, fetchImpl, calls } = scripted([503], listing, { 'Retry-After': '7200' });
     const { waits, sleepImpl } = recorder();
-    await fetchCommunities(['memes'], { fetchImpl, sleepImpl, delayMs: 0 });
+    await fetchCommunities(['memes'], { auth: {}, fetchImpl, sleepImpl, delayMs: 0 });
     expect(calls()).toBe(1);
     expect(waits).toEqual([]);
   });
 
   test('--retries 0 opts out entirely', async () => {
-    const { fetchImpl, calls } = scripted([429], listing);
-    await fetchCommunities(['memes'], { fetchImpl, retries: 0, delayMs: 0 });
+    const { auth: {}, fetchImpl, calls } = scripted([429], listing);
+    await fetchCommunities(['memes'], { auth: {}, fetchImpl, retries: 0, delayMs: 0 });
     expect(calls()).toBe(1);
   });
 });
 
 describe('fetchCommentsBatch', () => {
   test('paces the comment reads the same way as the listing reads', async () => {
-    const { fetchImpl, calls } = scripted([200], thread);
+    const { auth: {}, fetchImpl, calls } = scripted([200], thread);
     const { waits, sleepImpl } = recorder();
-    const result = await fetchCommentsBatch(['t3_a', 't3_b', 't3_c'], { fetchImpl, sleepImpl });
+    const result = await fetchCommentsBatch(['t3_a', 't3_b', 't3_c'], { auth: {}, fetchImpl, sleepImpl });
     expect(calls()).toBe(3);
     // three requests, two gaps — the bug this replaced fired all three back to back
     expect(waits).toEqual([REQUEST_DELAY_MS, REQUEST_DELAY_MS]);
@@ -160,13 +160,13 @@ describe('fetchCommentsBatch', () => {
 
   test('one bad post reference does not sink the batch', async () => {
     const { fetchImpl } = scripted([200], thread);
-    const result = await fetchCommentsBatch(['t3_a', 'https://example.com/no'], { fetchImpl, delayMs: 0 });
+    const result = await fetchCommentsBatch(['t3_a', 'https://example.com/no'], { auth: {}, fetchImpl, delayMs: 0 });
     expect(result.errors).toHaveLength(1);
     expect(result.items.length).toBeGreaterThan(0);
   });
 
   test('an empty batch is a no-op, not a request', async () => {
-    const { fetchImpl, calls } = scripted([200], thread);
+    const { auth: {}, fetchImpl, calls } = scripted([200], thread);
     const result = await fetchCommentsBatch([], { fetchImpl });
     expect(calls()).toBe(0);
     expect(result).toEqual({ items: [], errors: [] });

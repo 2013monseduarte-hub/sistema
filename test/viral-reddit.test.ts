@@ -42,7 +42,7 @@ function stub(payload: unknown, ok = true, status = 200) {
     calls.push({ url: String(url), init });
     return { ok, status, json: async () => payload } as unknown as Response;
   }) as typeof globalThis.fetch;
-  return { fetchImpl, calls };
+  return { auth: {}, fetchImpl, calls };
 }
 
 describe('url building', () => {
@@ -153,8 +153,8 @@ describe('parseComments', () => {
 
 describe('fetching', () => {
   test('sends a real User-Agent and reads every community in the list', async () => {
-    const { fetchImpl, calls } = stub(listingFixture);
-    const result = await fetchCommunities(['SpanishMeme', 'memexico'], { fetchImpl, delayMs: 0 });
+    const { auth: {}, fetchImpl, calls } = stub(listingFixture);
+    const result = await fetchCommunities(['SpanishMeme', 'memexico'], { auth: {}, fetchImpl, delayMs: 0 });
     expect(calls).toHaveLength(2);
     expect((calls[0].init?.headers as Record<string, string>)['User-Agent']).toBe(USER_AGENT);
     expect(result.errors).toEqual([]);
@@ -168,7 +168,7 @@ describe('fetching', () => {
       if (n === 1) return { ok: false, status: 404, json: async () => ({}) } as unknown as Response;
       return { ok: true, status: 200, json: async () => listingFixture } as unknown as Response;
     }) as typeof globalThis.fetch;
-    const result = await fetchCommunities(['subredditQueYaNoExiste', 'memexico'], { fetchImpl, delayMs: 0 });
+    const result = await fetchCommunities(['subredditQueYaNoExiste', 'memexico'], { auth: {}, fetchImpl, delayMs: 0 });
     expect(result.errors).toEqual([{ community: 'subredditQueYaNoExiste', reason: 'HTTP 404' }]);
     expect(result.items.length).toBe(4);
   });
@@ -177,20 +177,20 @@ describe('fetching', () => {
     const fetchImpl = (async () => {
       throw new Error('socket hang up');
     }) as typeof globalThis.fetch;
-    const result = await search('memes', ['memes'], { fetchImpl, retries: 0 });
+    const result = await search('memes', ['memes'], { auth: {}, fetchImpl, retries: 0 });
     expect(result.items).toEqual([]);
     expect(result.errors[0].reason).toBe('socket hang up');
   });
 
   test('comments fetch resolves a permalink to the comments endpoint', async () => {
-    const { fetchImpl, calls } = stub(commentsFixture);
+    const { auth: {}, fetchImpl, calls } = stub(commentsFixture);
     const result = await fetchComments('https://www.reddit.com/r/AskReddit/comments/zzz999/slug/', { fetchImpl });
     expect(calls[0].url).toBe(commentsUrl('zzz999', 50));
     expect(result.items.length).toBeGreaterThan(0);
   });
 
   test('an unresolvable post reference fails before any network call', async () => {
-    const { fetchImpl, calls } = stub(commentsFixture);
+    const { auth: {}, fetchImpl, calls } = stub(commentsFixture);
     const result = await fetchComments('https://example.com/nope', { fetchImpl });
     expect(calls).toHaveLength(0);
     expect(result.errors[0].reason).toContain('id');
@@ -198,7 +198,7 @@ describe('fetching', () => {
 
   test('every read leaves an egress receipt in the ledger', async () => {
     const { fetchImpl } = stub(listingFixture);
-    await fetchCommunities(['memes'], { fetchImpl, delayMs: 0 });
+    await fetchCommunities(['memes'], { auth: {}, fetchImpl, delayMs: 0 });
     const ledger = path.join(home, 'security', 'egress.jsonl');
     expect(fs.existsSync(ledger)).toBe(true);
     const lines = fs.readFileSync(ledger, 'utf-8').trim().split('\n').map((l) => JSON.parse(l));
